@@ -67,6 +67,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		allowed := false
 		allowedOrigins := []string{
 			"https://daedalus.wheelbase.io",
+			"https://minio.wheelbase.io",
 		}
 		
 		for _, allowedOrigin := range allowedOrigins {
