@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+@theme {
+  --font-nunito: "Nunito", system-ui, sans-serif;
+  
+  --color-dark: #0f1419;
+  --color-dark-lighter: #1a2129;
+  --color-dark-card: rgba(26, 33, 41, 0.7);
+  --color-dark-border: rgba(255, 255, 255, 0.08);
+  
+  --color-emerald-primary: #10b981;
+  --color-emerald-secondary: #14b8a6;
+  --color-emerald-glow: rgba(16, 185, 129, 0.15);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+html, body {
+  background-color: var(--tg-theme-bg-color, var(--color-dark));
+  color: var(--tg-theme-text-color, #ffffff);
+  font-family: var(--font-nunito);
+  overflow-x: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Glass morphism utility */
+.glass {
+  background: var(--color-dark-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-dark-border);
+}
+
+.glass-hover {
+  transition: all 0.2s ease;
+}
+
+.glass-hover:hover {
+  background: rgba(26, 33, 41, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.glass-hover:active {
+  transform: scale(0.98);
+}
+
+/* Emerald button styles */
+.btn-emerald {
+  background: linear-gradient(135deg, var(--color-emerald-primary), var(--color-emerald-secondary));
+  box-shadow: 0 4px 20px var(--color-emerald-glow);
+  transition: all 0.2s ease;
+}
+
+.btn-emerald:hover {
+  box-shadow: 0 6px 28px rgba(16, 185, 129, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-emerald:active {
+  transform: scale(0.98) translateY(0);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Animation utilities */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+/* Stagger animation delays */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
