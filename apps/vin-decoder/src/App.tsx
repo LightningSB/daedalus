@@ -18,7 +18,7 @@ const App: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
 
   const { tgUserId } = useTelegram();
-  const { conn, isLoading: dbLoading } = useDuckDB();
+  const { conn } = useDuckDB();
 
   const handleVinSubmit = useCallback(async (submittedVin: string) => {
     if (submittedVin.length !== 17) {
@@ -95,87 +95,86 @@ const App: React.FC = () => {
     setShowHistory(false);
   }, []);
 
-  const handleClearHistory = useCallback(() => {
-    setHistory([]);
-  }, []);
-
   return (
-    <div className="app-container">
-      {/* Gradient background */}
-      <div className="bg-gradient" />
-      
-      {/* Header */}
+    <div className="app">
       <header className="header">
-        <div className="header-left">
+        <div className="brand">
           <div className="logo">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="8" width="18" height="12" rx="2" />
+              <circle cx="7" cy="16" r="2" />
+              <circle cx="17" cy="16" r="2" />
+              <path d="M5 8l2-4h10l2 4" />
             </svg>
           </div>
-          <div className="header-text">
+          <div className="brand-text">
             <h1>VIN Decoder</h1>
-            <span>Instant Vehicle Lookup</span>
+            <span>Instant Lookup</span>
           </div>
         </div>
-        <button className="history-btn" onClick={() => setShowHistory(!showHistory)}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          {history.length > 0 && <span className="history-badge">{history.length}</span>}
-        </button>
-      </header>
-
-      {/* Main Content */}
-      <main className="main-content">
-        <VinInput
-          value={vin}
-          onChange={setVin}
-          onSubmit={handleVinSubmit}
-          loading={loading || dbLoading}
-          error={error}
-        />
-
-        {error && (
-          <div className="error-message">
+        <div className="header-actions">
+          <button className="icon-btn" onClick={() => setShowHistory(true)} aria-label="History">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v4m0 4h.01" />
+              <path d="M12 6v6l4 2" />
             </svg>
-            <span>{error}</span>
-          </div>
-        )}
+            {history.length > 0 && <span className="badge">{history.length}</span>}
+          </button>
+        </div>
+      </header>
 
-        {result && (
-          <ResultCard
-            data={result}
-            vin={vin}
-            onExpand={() => setShowDetails(true)}
+      <main className="main">
+        <div className="content">
+          <VinInput
+            value={vin}
+            onChange={setVin}
+            onSubmit={handleVinSubmit}
+            loading={loading}
           />
-        )}
 
-        {!result && !loading && !error && (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="3" y="8" width="18" height="12" rx="2" />
-                <circle cx="7" cy="16" r="2" />
-                <circle cx="17" cy="16" r="2" />
-                <path d="M5 8l2-4h10l2 4" />
+          {error && (
+            <div className="error-msg">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 8v4m0 4h.01" />
               </svg>
+              <span>{error}</span>
             </div>
-            <p className="empty-title">Enter a VIN to decode</p>
-            <p className="empty-subtitle">Get instant vehicle specs, history, and more</p>
-          </div>
-        )}
+          )}
+
+          {result ? (
+            <div className="result-area">
+              <ResultCard
+                data={result}
+                vin={vin}
+                onExpand={() => setShowDetails(true)}
+              />
+            </div>
+          ) : !loading && !error ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="8" width="18" height="12" rx="2" />
+                  <circle cx="7" cy="16" r="2" />
+                  <circle cx="17" cy="16" r="2" />
+                  <path d="M5 8l2-4h10l2 4" />
+                </svg>
+              </div>
+              <p className="empty-title">Ready to decode</p>
+              <p className="empty-subtitle">Enter a 17-character VIN to get vehicle specs instantly</p>
+            </div>
+          ) : null}
+        </div>
       </main>
 
-      <HistorySidebar
-        history={history}
-        isOpen={showHistory}
-        onClose={() => setShowHistory(false)}
-        onSelect={handleHistorySelect}
-        onClear={handleClearHistory}
-      />
+      {showHistory && (
+        <HistorySidebar
+          history={history}
+          onClose={() => setShowHistory(false)}
+          onSelect={handleHistorySelect}
+          onClear={() => setHistory([])}
+        />
+      )}
 
       {showDetails && result && (
         <ExpandedDetails
