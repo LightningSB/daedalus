@@ -5,7 +5,7 @@ import { ExpandedDetails } from './components/ExpandedDetails';
 import { HistorySidebar } from './components/HistorySidebar';
 import { useTelegram } from './hooks/useTelegram';
 import { useDuckDB } from './hooks/useDuckDB';
-import { decodeVin, saveHistoryToMinIO, VinResult, HistoryRecord } from './lib/api';
+import { decodeVin, saveHistoryToAPI, VinResult, HistoryRecord } from './lib/api';
 import './index.css';
 
 const App: React.FC = () => {
@@ -89,7 +89,7 @@ const App: React.FC = () => {
           
           if (tgUserId) {
             try {
-              await saveHistoryToMinIO(tgUserId, historyRecord);
+              await saveHistoryToAPI(tgUserId, historyRecord);
             } catch (saveError) {
               console.error('Failed to save history to MinIO:', saveError);
             }

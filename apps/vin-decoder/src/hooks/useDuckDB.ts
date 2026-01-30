@@ -58,23 +58,24 @@ export function useDuckDB(): UseDuckDBReturn {
           )
         `);
 
-        // Load existing history from MinIO Parquet
+        // Load existing history from API
         const tgUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
         if (tgUserId) {
-          const parquetUrl = `https://minio.wheelbase.io/daedalus/users/${tgUserId}/vin-history.parquet`;
           try {
-            // Install httpfs extension for reading from URLs
-            await connection.query(`INSTALL httpfs;`);
-            await connection.query(`LOAD httpfs;`);
-            
-            // Try to load from Parquet - use INSERT OR REPLACE for upsert
-            await connection.query(`
-              INSERT OR REPLACE INTO vin_history 
-              SELECT * FROM '${parquetUrl}'
-            `);
-            console.log('Loaded history from MinIO');
+            const apiUrl = `https://api.daedalus.wheelbase.io/api/users/${tgUserId}/vin-history`;
+            const response = await fetch(apiUrl);
+            if (response.ok) {
+              const records = await response.json();
+              for (const record of records) {
+                await connection.query(`
+                  INSERT OR REPLACE INTO vin_history (vin, make, model, year, data, timestamp)
+                  VALUES ('${record.vin}', '${record.make || ''}', '${record.model || ''}', '${record.year || ''}', '${JSON.stringify(record.data || {}).replace(/'/g, "''")}', ${record.decoded_at || Date.now()})
+                `);
+              }
+              console.log('Loaded history from API');
+            }
           } catch (e) {
-            // File might not exist yet - that's OK
+            // No history yet - that's OK
             console.log('No existing history or failed to load:', e);
           }
         }

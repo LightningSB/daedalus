@@ -74,9 +74,9 @@ export async function saveHistory(tgUserId: string, record: HistoryRecord): Prom
   }
 }
 
-export async function saveHistoryToMinIO(tgUserId: string, record: HistoryRecord): Promise<void> {
+export async function saveHistoryToAPI(tgUserId: string, record: HistoryRecord): Promise<void> {
   const response = await fetch(
-    `https://api.daedalus.wheelbase.io/api/users/${encodeURIComponent(tgUserId)}/vin-history/parquet`,
+    `https://api.daedalus.wheelbase.io/api/users/${encodeURIComponent(tgUserId)}/vin-history`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
