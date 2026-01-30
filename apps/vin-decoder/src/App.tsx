@@ -36,7 +36,13 @@ const App: React.FC = () => {
       if (response.Results && response.Results.length > 0) {
         const vehicleData = response.Results[0];
         
-        if (vehicleData.ErrorText) {
+        // ErrorCode "0" means success, any other code is an error
+        // ErrorText starting with "0 -" is a success message
+        const isError = vehicleData.ErrorText && 
+          !vehicleData.ErrorText.startsWith('0 -') && 
+          !vehicleData.ErrorText.startsWith('0 ');
+        
+        if (isError) {
           setError(vehicleData.ErrorText);
         } else {
           setResult(vehicleData);
