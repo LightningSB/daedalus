@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { VinInput } from './components/VinInput';
 import { ResultCard } from './components/ResultCard';
 import { ExpandedDetails } from './components/ExpandedDetails';
 import { HistorySidebar } from './components/HistorySidebar';
 import { useTelegram } from './hooks/useTelegram';
 import { useDuckDB } from './hooks/useDuckDB';
-import { decodeVin, saveHistory, VinResult, HistoryRecord } from './lib/api';
+import { decodeVin, saveHistoryToMinIO, VinResult, HistoryRecord } from './lib/api';
 import './index.css';
 
 const App: React.FC = () => {
@@ -18,7 +18,38 @@ const App: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
 
   const { tgUserId } = useTelegram();
-  const { conn } = useDuckDB();
+  const { conn, historyLoaded } = useDuckDB();
+
+  // Load history from DuckDB when connection is ready
+  useEffect(() => {
+    if (conn && historyLoaded) {
+      const loadHistory = async () => {
+        try {
+          const result = await conn.query(`
+            SELECT vin, make, model, year, data FROM vin_history ORDER BY timestamp DESC LIMIT 20
+          `);
+          
+          const records: HistoryRecord[] = [];
+          for (let i = 0; i < result.numRows; i++) {
+            const row = result.get(i);
+            if (row) {
+              records.push({
+                vin: String(row.vin),
+                make: String(row.make),
+                model: String(row.model),
+                year: String(row.year),
+                data: JSON.parse(String(row.data))
+              });
+            }
+          }
+          setHistory(records);
+        } catch (e) {
+          console.error('Failed to load history from DuckDB:', e);
+        }
+      };
+      loadHistory();
+    }
+  }, [conn, historyLoaded]);
 
   const handleVinSubmit = useCallback(async (submittedVin: string) => {
     if (submittedVin.length !== 17) {
@@ -57,7 +88,11 @@ const App: React.FC = () => {
           setHistory(prev => [historyRecord, ...prev.slice(0, 19)]);
           
           if (tgUserId) {
-            await saveHistory(tgUserId, historyRecord);
+            try {
+              await saveHistoryToMinIO(tgUserId, historyRecord);
+            } catch (saveError) {
+              console.error('Failed to save history to MinIO:', saveError);
+            }
           }
           
           if (conn) {
@@ -85,7 +120,7 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [tgUserId, conn]);
+  }, [tgUserId, conn, historyLoaded]);
 
   const handleHistorySelect = useCallback((record: HistoryRecord) => {
     setVin(record.vin);

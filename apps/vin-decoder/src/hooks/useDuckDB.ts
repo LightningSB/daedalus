@@ -6,6 +6,7 @@ interface UseDuckDBReturn {
   conn: duckdb.AsyncDuckDBConnection | null;
   isLoading: boolean;
   error: Error | null;
+  historyLoaded: boolean;
 }
 
 export function useDuckDB(): UseDuckDBReturn {
@@ -13,6 +14,7 @@ export function useDuckDB(): UseDuckDBReturn {
   const [conn, setConn] = useState<duckdb.AsyncDuckDBConnection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -56,8 +58,30 @@ export function useDuckDB(): UseDuckDBReturn {
           )
         `);
 
+        // Load existing history from MinIO Parquet
+        const tgUserId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+        if (tgUserId) {
+          const parquetUrl = `https://minio.wheelbase.io/daedalus/users/${tgUserId}/vin-history.parquet`;
+          try {
+            // Install httpfs extension for reading from URLs
+            await connection.query(`INSTALL httpfs;`);
+            await connection.query(`LOAD httpfs;`);
+            
+            // Try to load from Parquet - use INSERT OR REPLACE for upsert
+            await connection.query(`
+              INSERT OR REPLACE INTO vin_history 
+              SELECT * FROM '${parquetUrl}'
+            `);
+            console.log('Loaded history from MinIO');
+          } catch (e) {
+            // File might not exist yet - that's OK
+            console.log('No existing history or failed to load:', e);
+          }
+        }
+
         setDb(database);
         setConn(connection);
+        setHistoryLoaded(true);
         setError(null);
       } catch (err) {
         console.error('Failed to initialize DuckDB:', err);
@@ -80,5 +104,5 @@ export function useDuckDB(): UseDuckDBReturn {
     };
   }, []);
 
-  return { db, conn, isLoading, error };
+  return { db, conn, isLoading, error, historyLoaded };
 }

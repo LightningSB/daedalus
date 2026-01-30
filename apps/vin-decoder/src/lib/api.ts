@@ -73,3 +73,26 @@ export async function saveHistory(tgUserId: string, record: HistoryRecord): Prom
     console.error('Failed to save history:', response.statusText);
   }
 }
+
+export async function saveHistoryToMinIO(tgUserId: string, record: HistoryRecord): Promise<void> {
+  const response = await fetch(
+    `https://api.daedalus.wheelbase.io/api/users/${encodeURIComponent(tgUserId)}/vin-history/parquet`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vin: record.vin,
+        make: record.make,
+        model: record.model,
+        year: parseInt(record.year) || 0,
+        thumbnail: record.thumbnail || '',
+        data: record.data,
+        decoded_at: Date.now()
+      }),
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`Failed to save history: ${response.statusText}`);
+  }
+}

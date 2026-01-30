@@ -41,6 +41,8 @@ func main() {
 	r.Get("/api/catalog", catalogHandler.GetCatalog)
 	r.Get("/api/users/{tgUserId}/vin-history", historyHandler.GetHistory)
 	r.Post("/api/users/{tgUserId}/vin-history", historyHandler.PostHistory)
+	r.Get("/api/users/{tgUserId}/vin-history/parquet", historyHandler.GetHistoryParquet)
+	r.Post("/api/users/{tgUserId}/vin-history/parquet", historyHandler.PostHistoryParquet)
 
 	// Conversation history routes
 	r.Get("/api/users/{tgUserId}/sessions", conversationsHandler.ListSessions)
