@@ -8,18 +8,18 @@ interface ExpandedDetailsProps {
 }
 
 export const ExpandedDetails: React.FC<ExpandedDetailsProps> = ({ data, vin, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'specs' | 'safety' | 'other'>('specs');
+  const [activeTab, setActiveTab] = useState<'specs' | 'safety' | 'info'>('specs');
 
-  const specSections = {
+  const sections = {
     specs: [
       { label: 'Make', value: data.Make },
       { label: 'Model', value: data.Model },
       { label: 'Year', value: data.ModelYear },
       { label: 'Trim', value: data.Trim },
-      { label: 'Body Class', value: data.BodyClass },
+      { label: 'Series', value: data.Series },
+      { label: 'Body Style', value: data.BodyClass },
       { label: 'Drive Type', value: data.DriveType },
-      { label: 'Engine Size', value: data.DisplacementL ? `${data.DisplacementL}L` : null },
-      { label: 'Engine Config', value: data.EngineConfiguration },
+      { label: 'Engine', value: data.DisplacementL ? `${data.DisplacementL}L` : null },
       { label: 'Cylinders', value: data.EngineCylinders },
       { label: 'Horsepower', value: data.EngineHP ? `${data.EngineHP} HP` : null },
       { label: 'Fuel Type', value: data.FuelTypePrimary },
@@ -30,94 +30,133 @@ export const ExpandedDetails: React.FC<ExpandedDetailsProps> = ({ data, vin, onC
       { label: 'ABS', value: data.ABS },
       { label: 'ESC', value: data.ESC },
       { label: 'Traction Control', value: data.TractionControl },
-      { label: 'Front Airbag', value: data.AirBagLocFront },
-      { label: 'Side Airbag', value: data.AirBagLocSide },
-      { label: 'Curtain Airbag', value: data.AirBagLocCurtain },
+      { label: 'Front Airbags', value: data.AirBagLocFront },
       { label: 'TPMS', value: data.TPMS },
-      { label: 'Backup Camera', value: data.RearVisibilitySystem },
     ],
-    other: [
+    info: [
       { label: 'Manufacturer', value: data.Manufacturer },
       { label: 'Plant City', value: data.PlantCity },
       { label: 'Plant Country', value: data.PlantCountry },
       { label: 'Vehicle Type', value: data.VehicleType },
       { label: 'GVWR', value: data.GVWR },
-      { label: 'Series', value: data.Series },
     ],
   };
 
-  const filteredSpecs = specSections[activeTab].filter(s => s.value);
+  const currentSpecs = sections[activeTab].filter(s => s.value);
+  const tabs = [
+    { id: 'specs' as const, label: 'Specs' },
+    { id: 'safety' as const, label: 'Safety' },
+    { id: 'info' as const, label: 'Info' },
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0a0a0f]">
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 200,
+      background: 'var(--bg)',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#0a0a0f]/90 backdrop-blur-xl">
+      <header style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '16px 20px',
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--bg)'
+      }}>
         <div>
-          <h2 className="text-lg font-bold text-white">
-            {data.Make} {data.Model}
-          </h2>
-          <p className="text-xs text-white/40">{data.ModelYear} • {vin}</p>
+          <h2 style={{ fontSize: '18px', fontWeight: 700 }}>{data.Make} {data.Model}</h2>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{data.ModelYear} • {vin}</p>
         </div>
-        <button
-          onClick={onClose}
-          className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
-        >
-          <svg className="w-5 h-5 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <button onClick={onClose} style={{
+          width: '40px',
+          height: '40px',
+          borderRadius: '12px',
+          background: 'var(--card)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-dim)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
-      </div>
+      </header>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/5 px-4">
-        {(['specs', 'safety', 'other'] as const).map((tab) => (
+      <div style={{
+        display: 'flex',
+        padding: '0 20px',
+        gap: '8px',
+        borderBottom: '1px solid var(--border)'
+      }}>
+        {tabs.map(tab => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`
-              px-4 py-3 text-sm font-medium capitalize transition-colors relative
-              ${activeTab === tab ? 'text-emerald-400' : 'text-white/40 hover:text-white/60'}
-            `}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '14px 16px',
+              background: 'none',
+              border: 'none',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              color: activeTab === tab.id ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+              marginBottom: '-1px'
+            }}
           >
-            {tab}
-            {activeTab === tab && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 rounded-full" />
-            )}
+            {tab.label}
           </button>
         ))}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-2 max-w-lg mx-auto">
-          {filteredSpecs.length === 0 ? (
-            <div className="text-center py-12 text-white/40">
-              No {activeTab} data available
-            </div>
-          ) : (
-            filteredSpecs.map((spec, index) => (
-              <div 
-                key={spec.label}
-                className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/[0.02] border border-white/5"
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                <span className="text-sm text-white/50">{spec.label}</span>
-                <span className="text-sm font-medium text-white text-right max-w-[60%] truncate">
-                  {spec.value}
-                </span>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+        {currentSpecs.length === 0 ? (
+          <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
+            No data available
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {currentSpecs.map(spec => (
+              <div key={spec.label} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
+                background: 'var(--card)',
+                borderRadius: '12px',
+                border: '1px solid var(--border)'
+              }}>
+                <span style={{ fontSize: '14px', color: 'var(--text-dim)' }}>{spec.label}</span>
+                <span style={{ fontSize: '14px', fontWeight: 600, textAlign: 'right', maxWidth: '55%' }}>{spec.value}</span>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Close Button */}
-      <div className="p-4 border-t border-white/5">
-        <button
-          onClick={onClose}
-          className="w-full py-4 rounded-xl bg-white/5 text-white font-medium hover:bg-white/10 transition-colors"
-        >
-          Close
+      <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
+        <button onClick={onClose} style={{
+          width: '100%',
+          padding: '16px',
+          borderRadius: '14px',
+          background: 'var(--card)',
+          border: '1px solid var(--border)',
+          color: 'var(--text)',
+          fontSize: '15px',
+          fontWeight: 600,
+          cursor: 'pointer'
+        }}>
+          Done
         </button>
       </div>
     </div>

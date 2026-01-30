@@ -25,7 +25,9 @@ export const VinInput: React.FC<VinInputProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(value);
+    if (value.length === 17 && !loading) {
+      onSubmit(value);
+    }
   };
 
   const handlePaste = async () => {
@@ -45,156 +47,68 @@ export const VinInput: React.FC<VinInputProps> = ({
   const isValid = value.length === 17;
 
   return (
-    <form onSubmit={handleSubmit}>
-      {/* Label */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        marginBottom: '12px'
-      }}>
-        <label style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)' }}>
-          Vehicle Identification Number
-        </label>
-        <span style={{ 
-          fontSize: '12px', 
-          fontFamily: 'monospace',
-          color: isValid ? '#10b981' : 'rgba(255,255,255,0.3)'
-        }}>
+    <form onSubmit={handleSubmit} className="vin-card">
+      <div className="vin-label">
+        <span className="vin-label-text">Vehicle ID Number</span>
+        <span className={`vin-count ${isValid ? '' : 'incomplete'}`}>
           {value.length}/17
         </span>
       </div>
 
-      {/* Input */}
-      <div style={{ position: 'relative', marginBottom: '12px' }}>
+      <div className="vin-input-wrapper">
         <input
           type="text"
           value={value}
           onChange={handleChange}
-          placeholder="ENTER 17-CHARACTER VIN"
+          placeholder="Enter VIN..."
           maxLength={17}
           disabled={loading}
-          style={{
-            width: '100%',
-            padding: '16px',
-            paddingRight: value ? '48px' : '16px',
-            background: 'rgba(0,0,0,0.4)',
-            border: `1px solid ${isValid ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'}`,
-            borderRadius: '12px',
-            fontSize: '16px',
-            fontFamily: 'monospace',
-            fontWeight: '600',
-            letterSpacing: '2px',
-            color: 'white',
-            outline: 'none',
-            boxSizing: 'border-box'
-          }}
+          className="vin-input"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="characters"
+          spellCheck={false}
         />
         {value && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            style={{
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: '28px',
-              height: '28px',
-              borderRadius: '8px',
-              background: 'rgba(255,255,255,0.1)',
-              border: 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: 'rgba(255,255,255,0.6)'
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M6 18L18 6M6 6l12 12" />
+          <button type="button" onClick={() => onChange('')} className="clear-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
         )}
       </div>
 
-      {/* Paste Button */}
-      <button
-        type="button"
-        onClick={handlePaste}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: 'none',
-          border: 'none',
-          color: 'rgba(16,185,129,0.7)',
-          fontSize: '14px',
-          cursor: 'pointer',
-          padding: '4px 0',
-          marginBottom: '16px'
-        }}
-      >
+      <button type="button" onClick={handlePaste} className="paste-btn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          <rect x="9" y="9" width="13" height="13" rx="2" />
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
         </svg>
-        Paste from clipboard
+        Paste
       </button>
 
-      {/* Submit Button */}
       <button
         type="submit"
         disabled={loading || !isValid}
-        style={{
-          width: '100%',
-          padding: '16px',
-          borderRadius: '12px',
-          border: 'none',
-          fontWeight: '600',
-          fontSize: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          cursor: isValid && !loading ? 'pointer' : 'not-allowed',
-          background: isValid && !loading 
-            ? 'linear-gradient(135deg, #10b981, #059669)' 
-            : 'rgba(255,255,255,0.05)',
-          color: isValid && !loading ? 'white' : 'rgba(255,255,255,0.3)',
-          boxShadow: isValid && !loading ? '0 4px 16px rgba(16,185,129,0.3)' : 'none',
-          transition: 'all 0.2s'
-        }}
+        className={`decode-btn ${isValid && !loading ? 'active' : 'inactive'}`}
       >
         {loading ? (
           <>
-            <svg 
-              width="20" 
-              height="20" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              style={{ animation: 'spin 1s linear infinite' }}
-            >
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
-              <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+              <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <span>Decoding...</span>
+            Decoding...
           </>
         ) : (
           <>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
             </svg>
-            <span>{isValid ? 'Decode VIN' : `Enter ${17 - value.length} more characters`}</span>
+            {isValid ? 'Decode VIN' : `${17 - value.length} more`}
           </>
         )}
       </button>
-      
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </form>
   );
 };
