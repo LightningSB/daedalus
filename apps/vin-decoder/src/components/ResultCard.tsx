@@ -14,77 +14,112 @@ export const ResultCard: React.FC<ResultCardProps> = ({ data, vin, onExpand }) =
   };
 
   return (
-    <div className="glass-card rounded-2xl overflow-hidden">
-      {/* Vehicle Image */}
-      <div className="relative h-48 sm:h-56 bg-gradient-to-b from-white/5 to-transparent">
+    <div className="premium-card rounded-3xl overflow-hidden relative group">
+      {/* Ambient glow effect */}
+      <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      
+      {/* Vehicle Image Section */}
+      <div className="relative h-52 sm:h-64 overflow-hidden">
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0a0a0f]/50 to-[#0a0a0f] z-10" />
+        
+        {/* Image */}
         <img
           src={getVehicleImage()}
           alt={`${data.Make} ${data.Model}`}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700"
           onError={(e) => {
             (e.target as HTMLImageElement).src = `https://placehold.co/600x400/12121a/10b981?text=${encodeURIComponent(data.Make || 'Vehicle')}`;
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] via-transparent to-transparent" />
+        
+        {/* Top gradient for badge */}
+        <div className="absolute inset-0 bg-gradient-to-t from-transparent via-transparent to-[#0a0a0f]/80 z-20" />
         
         {/* Car Logo Badge */}
-        <div className="absolute top-4 right-4">
-          <CarLogo make={data.Make} size="lg" />
+        <div className="absolute top-4 right-4 z-30">
+          <div className="relative">
+            <div className="absolute inset-0 bg-emerald-500/20 rounded-2xl blur-xl" />
+            <div className="relative p-3 rounded-2xl bg-[#0a0a0f]/60 backdrop-blur-xl border border-white/10 shadow-xl">
+              <CarLogo make={data.Make} size="lg" />
+            </div>
+          </div>
         </div>
         
         {/* VIN Badge */}
-        <div className="absolute bottom-4 left-4">
-          <span className="px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg text-xs font-mono text-white/80 border border-white/10">
-            {vin}
-          </span>
+        <div className="absolute bottom-4 left-4 z-30">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0a0a0f]/60 backdrop-blur-xl border border-white/10 shadow-lg">
+            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <span className="text-sm font-mono font-semibold text-white/90 tracking-wider">
+              {vin}
+            </span>
+          </div>
+        </div>
+        
+        {/* Year badge */}
+        <div className="absolute bottom-4 right-4 z-30">
+          <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-600/20 backdrop-blur-xl border border-emerald-500/30 shadow-lg">
+            <span className="text-lg font-bold text-emerald-400">{data.ModelYear}</span>
+          </div>
         </div>
       </div>
 
       {/* Vehicle Info */}
-      <div className="p-4 sm:p-5">
+      <div className="relative p-5 sm:p-6">
         {/* Title */}
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">
-              {data.Make} {data.Model}
-            </h2>
-            <p className="text-[#10b981] font-semibold text-lg">
-              {data.ModelYear} {data.Trim}
-            </p>
-          </div>
+        <div className="mb-6">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1 group-hover:text-emerald-50 transition-colors">
+            {data.Make} {data.Model}
+          </h2>
+          <p className="text-emerald-400/80 font-semibold text-lg">
+            {data.Trim || 'Standard Trim'}
+          </p>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {/* Quick Stats Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <StatCard
             icon="engine"
             label="Engine"
             value={data.EngineHP ? `${data.EngineHP} HP` : data.DisplacementL ? `${data.DisplacementL}L` : 'N/A'}
+            delay={0}
           />
           <StatCard
             icon="transmission"
             label="Transmission"
             value={data.TransmissionStyle?.replace('Transmission', '').trim() || 'N/A'}
+            delay={1}
           />
           <StatCard
             icon="body"
             label="Body"
             value={data.BodyClass?.replace('Vehicle', '').trim() || 'N/A'}
+            delay={2}
           />
           <StatCard
             icon="drive"
             label="Drive"
             value={data.DriveType || 'N/A'}
+            delay={3}
           />
         </div>
 
         {/* Expand Button */}
         <button
           onClick={onExpand}
-          className="w-full btn-secondary py-3 flex items-center justify-center gap-2 text-[#10b981] border-[#10b981]/30 hover:bg-[#10b981]/10"
+          className="w-full py-4 px-6 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all duration-300 relative overflow-hidden group/btn"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%)',
+            border: '1px solid rgba(16, 185, 129, 0.2)'
+          }}
         >
-          <span>View Full Details</span>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          {/* Hover glow */}
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/10 to-emerald-500/0 opacity-0 group-hover/btn:opacity-100 transition-opacity duration-500" />
+          
+          <span className="relative text-emerald-400 group-hover/btn:text-emerald-300 transition-colors">View Full Details</span>
+          <svg className="relative w-5 h-5 text-emerald-400 group-hover/btn:text-emerald-300 group-hover/btn:translate-y-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
@@ -97,9 +132,10 @@ interface StatCardProps {
   icon: string;
   label: string;
   value: string;
+  delay: number;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, delay }) => {
   const getIcon = () => {
     switch (icon) {
       case 'engine':
@@ -133,12 +169,19 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => {
   };
 
   return (
-    <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-      <div className="flex items-center gap-2 text-[#10b981] mb-1">
-        {getIcon()}
-        <span className="text-xs font-medium text-white/50">{label}</span>
+    <div 
+      className="stat-card p-4 group/stat hover:bg-white/[0.05] transition-all duration-300"
+      style={{ animationDelay: `${delay * 100}ms` }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover/stat:bg-emerald-500/20 transition-colors">
+          {getIcon()}
+        </div>
+        <span className="text-xs font-medium text-white/40">{label}</span>
       </div>
-      <p className="text-sm font-semibold text-white truncate">{value}</p>
+      <p className="text-sm font-bold text-white truncate group-hover/stat:text-emerald-50 transition-colors">
+        {value}
+      </p>
     </div>
   );
 };
