@@ -45,45 +45,74 @@ export const VinInput: React.FC<VinInputProps> = ({
   const isValid = value.length === 17;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit}>
       {/* Label */}
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-white/60">
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        marginBottom: '12px'
+      }}>
+        <label style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)' }}>
           Vehicle Identification Number
         </label>
-        <span className={`text-xs font-mono ${isValid ? 'text-emerald-400' : 'text-white/30'}`}>
+        <span style={{ 
+          fontSize: '12px', 
+          fontFamily: 'monospace',
+          color: isValid ? '#10b981' : 'rgba(255,255,255,0.3)'
+        }}>
           {value.length}/17
         </span>
       </div>
 
       {/* Input */}
-      <div className="relative">
+      <div style={{ position: 'relative', marginBottom: '12px' }}>
         <input
           type="text"
           value={value}
           onChange={handleChange}
-          placeholder="Enter 17-character VIN"
+          placeholder="ENTER 17-CHARACTER VIN"
           maxLength={17}
           disabled={loading}
-          className={`
-            w-full px-4 py-4 
-            bg-black/40 
-            border rounded-xl 
-            text-lg font-mono font-semibold tracking-wider uppercase 
-            text-white placeholder:text-white/20
-            focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50
-            transition-all
-            ${isValid ? 'border-emerald-500/30' : 'border-white/10'}
-          `}
+          style={{
+            width: '100%',
+            padding: '16px',
+            paddingRight: value ? '48px' : '16px',
+            background: 'rgba(0,0,0,0.4)',
+            border: `1px solid ${isValid ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'}`,
+            borderRadius: '12px',
+            fontSize: '16px',
+            fontFamily: 'monospace',
+            fontWeight: '600',
+            letterSpacing: '2px',
+            color: 'white',
+            outline: 'none',
+            boxSizing: 'border-box'
+          }}
         />
         {value && (
           <button
             type="button"
             onClick={() => onChange('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+            style={{
+              position: 'absolute',
+              right: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              background: 'rgba(255,255,255,0.1)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.6)'
+            }}
           >
-            <svg className="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         )}
@@ -93,10 +122,21 @@ export const VinInput: React.FC<VinInputProps> = ({
       <button
         type="button"
         onClick={handlePaste}
-        className="flex items-center gap-2 text-sm text-emerald-400/70 hover:text-emerald-400 transition-colors"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          background: 'none',
+          border: 'none',
+          color: 'rgba(16,185,129,0.7)',
+          fontSize: '14px',
+          cursor: 'pointer',
+          padding: '4px 0',
+          marginBottom: '16px'
+        }}
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
         Paste from clipboard
       </button>
@@ -105,33 +145,56 @@ export const VinInput: React.FC<VinInputProps> = ({
       <button
         type="submit"
         disabled={loading || !isValid}
-        className={`
-          w-full py-4 rounded-xl font-semibold text-base
-          flex items-center justify-center gap-2
-          transition-all duration-200
-          ${isValid && !loading
-            ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98]'
-            : 'bg-white/5 text-white/30 cursor-not-allowed'
-          }
-        `}
+        style={{
+          width: '100%',
+          padding: '16px',
+          borderRadius: '12px',
+          border: 'none',
+          fontWeight: '600',
+          fontSize: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          cursor: isValid && !loading ? 'pointer' : 'not-allowed',
+          background: isValid && !loading 
+            ? 'linear-gradient(135deg, #10b981, #059669)' 
+            : 'rgba(255,255,255,0.05)',
+          color: isValid && !loading ? 'white' : 'rgba(255,255,255,0.3)',
+          boxShadow: isValid && !loading ? '0 4px 16px rgba(16,185,129,0.3)' : 'none',
+          transition: 'all 0.2s'
+        }}
       >
         {loading ? (
           <>
-            <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            <svg 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              style={{ animation: 'spin 1s linear infinite' }}
+            >
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
+              <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
             <span>Decoding...</span>
           </>
         ) : (
           <>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <span>{isValid ? 'Decode VIN' : `Enter ${17 - value.length} more characters`}</span>
           </>
         )}
       </button>
+      
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </form>
   );
 };

@@ -95,47 +95,96 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white relative overflow-x-hidden">
-      {/* Background effects */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/5 via-transparent to-transparent" />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-emerald-500/10 rounded-full blur-[100px]" />
-      </div>
-
+    <div style={{ 
+      minHeight: '100vh', 
+      background: '#0a0a0f', 
+      color: 'white',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#0a0a0f]/80 border-b border-white/5">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-white">VIN Decoder</h1>
-              <p className="text-xs text-emerald-400/70">Vehicle Lookup</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all"
-          >
-            <svg className="w-4 h-4 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <header style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        background: 'rgba(10,10,15,0.9)',
+        backdropFilter: 'blur(10px)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            {history.length > 0 && (
-              <span className="bg-emerald-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                {history.length}
-              </span>
-            )}
-          </button>
+          </div>
+          <div>
+            <h1 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>VIN Decoder</h1>
+            <p style={{ fontSize: '12px', color: 'rgba(16,185,129,0.7)', margin: 0 }}>Vehicle Lookup</p>
+          </div>
         </div>
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.05)',
+            color: 'rgba(255,255,255,0.6)',
+            cursor: 'pointer'
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {history.length > 0 && (
+            <span style={{
+              background: '#10b981',
+              color: 'white',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              padding: '2px 6px',
+              borderRadius: '10px',
+              minWidth: '20px',
+              textAlign: 'center'
+            }}>
+              {history.length}
+            </span>
+          )}
+        </button>
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-lg mx-auto px-4 py-6">
+      <main style={{ 
+        flex: 1, 
+        padding: '16px',
+        maxWidth: '500px',
+        margin: '0 auto',
+        width: '100%',
+        boxSizing: 'border-box'
+      }}>
         {/* VIN Input Card */}
-        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/10 p-5">
+        <div style={{
+          background: 'rgba(255,255,255,0.03)',
+          borderRadius: '16px',
+          border: '1px solid rgba(255,255,255,0.08)',
+          padding: '20px'
+        }}>
           <VinInput
             value={vin}
             onChange={setVin}
@@ -147,19 +196,27 @@ const App: React.FC = () => {
 
         {/* Error Message */}
         {error && (
-          <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 animate-slide-up">
-            <div className="flex items-center gap-3 text-red-400">
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm font-medium">{error}</span>
-            </div>
+          <div style={{
+            marginTop: '16px',
+            padding: '16px',
+            borderRadius: '12px',
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            color: '#f87171'
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span style={{ fontSize: '14px', fontWeight: '500' }}>{error}</span>
           </div>
         )}
 
         {/* Result Card */}
         {result && (
-          <div className="mt-6 animate-slide-up">
+          <div style={{ marginTop: '24px' }}>
             <ResultCard
               data={result}
               vin={vin}
@@ -170,20 +227,60 @@ const App: React.FC = () => {
 
         {/* Empty State */}
         {!result && !loading && !error && (
-          <div className="mt-12 text-center animate-fade-in">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center">
-              <svg className="w-10 h-10 text-emerald-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <div style={{ 
+            marginTop: '48px', 
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}>
+            <div style={{
+              width: '80px',
+              height: '80px',
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.05))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '24px'
+            }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(16,185,129,0.6)" strokeWidth="1.5">
+                <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-white mb-2">Ready to Decode</h3>
-            <p className="text-white/40 text-sm max-w-xs mx-auto">
+            <h3 style={{ 
+              fontSize: '18px', 
+              fontWeight: '600', 
+              margin: '0 0 8px 0' 
+            }}>
+              Ready to Decode
+            </h3>
+            <p style={{ 
+              fontSize: '14px', 
+              color: 'rgba(255,255,255,0.4)', 
+              margin: 0,
+              maxWidth: '280px',
+              lineHeight: '1.5'
+            }}>
               Enter a 17-character VIN to get detailed vehicle information
             </p>
             
-            <div className="mt-8 flex flex-wrap justify-center gap-2">
+            <div style={{ 
+              marginTop: '24px', 
+              display: 'flex', 
+              flexWrap: 'wrap', 
+              justifyContent: 'center',
+              gap: '8px' 
+            }}>
               {['Instant Results', 'Full Specs', 'History'].map((feature) => (
-                <span key={feature} className="px-3 py-1.5 rounded-full bg-white/5 border border-white/5 text-xs text-white/40">
+                <span key={feature} style={{
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.05)',
+                  fontSize: '12px',
+                  color: 'rgba(255,255,255,0.4)'
+                }}>
                   ✓ {feature}
                 </span>
               ))}
