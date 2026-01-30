@@ -21,7 +21,8 @@ export default function AppLoader({ appId, onBack }: AppLoaderProps) {
     setIsLoading(false)
   }
 
-  const iframeSrc = `${BASE_URL}/${appId}/index.html`
+  // Add cache-busting parameter to force reload
+  const iframeSrc = `${BASE_URL}/${appId}/index.html?v=${Date.now()}`
 
   return (
     <div className="fixed inset-0 bg-dark">
