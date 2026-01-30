@@ -25,6 +25,7 @@ func main() {
 	// Create handlers
 	catalogHandler := handlers.NewCatalogHandler(minioClient)
 	historyHandler := handlers.NewHistoryHandler(minioClient)
+	conversationsHandler := handlers.NewConversationsHandler(minioClient)
 
 	// Setup router
 	r := chi.NewRouter()
@@ -40,6 +41,14 @@ func main() {
 	r.Get("/api/catalog", catalogHandler.GetCatalog)
 	r.Get("/api/users/{tgUserId}/vin-history", historyHandler.GetHistory)
 	r.Post("/api/users/{tgUserId}/vin-history", historyHandler.PostHistory)
+
+	// Conversation history routes
+	r.Get("/api/users/{tgUserId}/sessions", conversationsHandler.ListSessions)
+	r.Post("/api/users/{tgUserId}/sessions", conversationsHandler.CreateSession)
+	r.Get("/api/users/{tgUserId}/sessions/{sessionKey}", conversationsHandler.GetSession)
+	r.Delete("/api/users/{tgUserId}/sessions/{sessionKey}", conversationsHandler.DeleteSession)
+	r.Get("/api/users/{tgUserId}/sessions/{sessionKey}/messages", conversationsHandler.GetMessages)
+	r.Post("/api/users/{tgUserId}/sessions/{sessionKey}/messages", conversationsHandler.AppendMessages)
 
 	// Start server
 	log.Printf("Server starting on port %s", cfg.Port)
@@ -72,7 +81,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		}
 

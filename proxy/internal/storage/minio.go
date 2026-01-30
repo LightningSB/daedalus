@@ -73,3 +73,7 @@ func (m *MinIOClient) ObjectExists(ctx context.Context, objectName string) (bool
 	}
 	return true, nil
 }
+
+func (m *MinIOClient) DeleteObject(ctx context.Context, objectName string) error {
+	return m.client.RemoveObject(ctx, m.bucket, objectName, minio.RemoveObjectOptions{})
+}
