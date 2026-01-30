@@ -8,20 +8,9 @@ import (
 	"io"
 
 	"daedalus-proxy/internal/storage"
-	"github.com/parquet-go/parquet-go"
 )
 
 type VINHistoryRecord struct {
-	VIN       string `parquet:"vin"`
-	DecodedAt int64  `parquet:"decoded_at"`
-	Make      string `parquet:"make"`
-	Model     string `parquet:"model"`
-	Year      int32  `parquet:"year"`
-	Thumbnail string `parquet:"thumbnail"`
-	DataJSON  string `parquet:"data_json"`
-}
-
-type VINHistoryResponse struct {
 	VIN       string          `json:"vin"`
 	DecodedAt int64           `json:"decoded_at"`
 	Make      string          `json:"make"`
@@ -31,16 +20,16 @@ type VINHistoryResponse struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-func ReadVINHistory(ctx context.Context, minioClient *storage.MinIOClient, tgUserID string) ([]VINHistoryResponse, error) {
-	objectName := fmt.Sprintf("users/%s/vin-history.parquet", tgUserID)
-	
+func ReadVINHistory(ctx context.Context, minioClient *storage.MinIOClient, tgUserID string) ([]VINHistoryRecord, error) {
+	objectName := fmt.Sprintf("users/%s/vin-history.json", tgUserID)
+
 	exists, err := minioClient.ObjectExists(ctx, objectName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check history existence: %w", err)
 	}
 
 	if !exists {
-		return []VINHistoryResponse{}, nil
+		return []VINHistoryRecord{}, nil
 	}
 
 	reader, err := minioClient.GetObject(ctx, objectName)
@@ -58,68 +47,38 @@ func ReadVINHistory(ctx context.Context, minioClient *storage.MinIOClient, tgUse
 		return nil, fmt.Errorf("failed to read history data: %w", err)
 	}
 
-	records := []VINHistoryRecord{}
-	err = parquet.Read(bytes.NewReader(data), &records)
+	var records []VINHistoryRecord
+	err = json.Unmarshal(data, &records)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse history parquet: %w", err)
+		return nil, fmt.Errorf("failed to parse history json: %w", err)
 	}
 
-	// Convert records to response format
-	responses := make([]VINHistoryResponse, len(records))
-	for i, record := range records {
-		responses[i] = VINHistoryResponse{
-			VIN:       record.VIN,
-			DecodedAt: record.DecodedAt,
-			Make:      record.Make,
-			Model:     record.Model,
-			Year:      record.Year,
-			Thumbnail: record.Thumbnail,
-			Data:      json.RawMessage(record.DataJSON),
-		}
-	}
-
-	return responses, nil
+	return records, nil
 }
 
 func AppendVINHistory(ctx context.Context, minioClient *storage.MinIOClient, tgUserID string, newRecord VINHistoryRecord) error {
-	objectName := fmt.Sprintf("users/%s/vin-history.parquet", tgUserID)
-	
+	objectName := fmt.Sprintf("users/%s/vin-history.json", tgUserID)
+
 	// Read existing records
-	exists, err := minioClient.ObjectExists(ctx, objectName)
+	records, err := ReadVINHistory(ctx, minioClient, tgUserID)
 	if err != nil {
-		return fmt.Errorf("failed to check history existence: %w", err)
+		// If error reading, start fresh
+		records = []VINHistoryRecord{}
 	}
 
-	records := []VINHistoryRecord{}
-	if exists {
-		reader, err := minioClient.GetObject(ctx, objectName)
-		if err != nil {
-			return fmt.Errorf("failed to get history object: %w", err)
-		}
-		
-		data, err := io.ReadAll(reader)
-		if closer, ok := reader.(io.Closer); ok {
-			closer.Close()
-		}
-		if err != nil {
-			return fmt.Errorf("failed to read history data: %w", err)
-		}
+	// Prepend new record
+	records = append([]VINHistoryRecord{newRecord}, records...)
 
-		err = parquet.Read(bytes.NewReader(data), &records)
-		if err != nil {
-			return fmt.Errorf("failed to parse history parquet: %w", err)
-		}
+	// Keep only last 50 records
+	if len(records) > 50 {
+		records = records[:50]
 	}
-
-	// Append new record
-	records = append(records, newRecord)
 
 	// Write back
-	buf := new(bytes.Buffer)
-	err = parquet.Write(buf, records)
+	data, err := json.Marshal(records)
 	if err != nil {
-		return fmt.Errorf("failed to write history parquet: %w", err)
+		return fmt.Errorf("failed to marshal history: %w", err)
 	}
 
-	return minioClient.PutObject(ctx, objectName, bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	return minioClient.PutObject(ctx, objectName, bytes.NewReader(data), int64(len(data)))
 }

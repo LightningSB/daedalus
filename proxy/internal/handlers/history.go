@@ -78,7 +78,7 @@ func (h *HistoryHandler) PostHistory(w http.ResponseWriter, r *http.Request) {
 		Model:     req.Model,
 		Year:      req.Year,
 		Thumbnail: req.Thumbnail,
-		DataJSON:  string(req.Data),
+		Data:      req.Data,
 	}
 
 	if err := parquet.AppendVINHistory(r.Context(), h.minioClient, tgUserID, record); err != nil {
@@ -89,13 +89,14 @@ func (h *HistoryHandler) PostHistory(w http.ResponseWriter, r *http.Request) {
 
 	// Get count after append
 	records, err := parquet.ReadVINHistory(r.Context(), h.minioClient, tgUserID)
-	if err != nil {
-		log.Printf("Error reading history count for user %s: %v", tgUserID, err)
+	count := 0
+	if err == nil {
+		count = len(records)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(VINHistoryResponse{
 		Success: true,
-		Count:   len(records),
+		Count:   count,
 	})
 }
