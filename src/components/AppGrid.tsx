@@ -6,30 +6,12 @@ interface AppGridProps {
   onCreateNew: () => void
 }
 
-const MOCK_APPS = [
+const APPS = [
   {
-    id: 'habit-tracker',
-    name: 'Habit Tracker',
-    icon: '🎯',
-    description: 'Track your daily habits and build streaks',
-  },
-  {
-    id: 'expense-dashboard',
-    name: 'Expense Dashboard',
-    icon: '💰',
-    description: 'Monitor spending and visualize your finances',
-  },
-  {
-    id: 'todo-list',
-    name: 'Todo List',
-    icon: '✅',
-    description: 'Simple task management with priorities',
-  },
-  {
-    id: 'weather-widget',
-    name: 'Weather Widget',
-    icon: '🌤️',
-    description: 'Local weather forecasts at a glance',
+    id: 'vin-decoder',
+    name: 'VIN Decoder',
+    icon: '🚗',
+    description: 'Decode any vehicle identification number',
   },
 ]
 
@@ -64,7 +46,7 @@ export function AppGrid({ onAppSelect, onCreateNew }: AppGridProps) {
 
       {/* App Grid */}
       <div className="grid grid-cols-2 gap-3">
-        {MOCK_APPS.map((app, index) => (
+        {APPS.map((app, index) => (
           <div
             key={app.id}
             className={`animate-fade-in opacity-0 stagger-${index + 1}`}
