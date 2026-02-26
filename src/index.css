@@ -377,3 +377,11 @@ body {
     overflow: auto;
   }
 }
+
+.workbench-fullscreen {
+  grid-template-columns: 1fr;
+}
+
+.workbench-fullscreen .workbench-sidebar {
+  display: none;
+}

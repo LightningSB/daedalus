@@ -4,74 +4,26 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { useTelegram } from './hooks/useTelegram'
 import {
   ApiError,
-  apiClient,
+  createApiClient,
   type CreateSshSessionResponse,
   type SavedHost,
   type VaultStatus,
 } from './api/client'
+
+type SessionTab = {
+  id: string
+  title: string
+  websocketUrl: string
+}
 
 type ParsedSshCommand = {
   isSsh: boolean
   user?: string
   host?: string
   port?: number
-}
-
-type SessionTab = {
-  id: string
-  title: string
-  rawCommand: string
-  websocketUrl?: string
-}
-
-function parseSshCommand(raw: string): ParsedSshCommand {
-  const tokens = raw.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
-  if (tokens.length === 0 || tokens[0] !== 'ssh') {
-    return { isSsh: false }
-  }
-
-  let port: number | undefined
-  let user: string | undefined
-  let host: string | undefined
-
-  for (let i = 1; i < tokens.length; i += 1) {
-    const token = tokens[i]
-    if (token === '-p' && i + 1 < tokens.length) {
-      const parsedPort = Number.parseInt(tokens[i + 1], 10)
-      if (!Number.isNaN(parsedPort)) {
-        port = parsedPort
-      }
-      i += 1
-      continue
-    }
-
-    if (!token.startsWith('-') && !host) {
-      const [maybeUser, maybeHost] = token.split('@')
-      if (maybeHost) {
-        user = maybeUser
-        host = maybeHost
-      } else {
-        host = maybeUser
-      }
-    }
-  }
-
-  return {
-    isSsh: true,
-    user,
-    host,
-    port,
-  }
-}
-
-function toTitleFromCommand(rawCommand: string): string {
-  const parsed = parseSshCommand(rawCommand)
-  if (parsed.host) {
-    return parsed.user ? `${parsed.user}@${parsed.host}` : parsed.host
-  }
-  return rawCommand.slice(0, 24) || 'SSH'
 }
 
 type MobileControl = {
@@ -97,20 +49,79 @@ const MOBILE_CONTROLS: MobileControl[] = [
   { label: 'Paste', action: 'paste' },
 ]
 
+function parseSshCommand(raw: string): ParsedSshCommand {
+  const tokens = raw.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
+  if (tokens.length === 0 || tokens[0] !== 'ssh') {
+    return { isSsh: false }
+  }
+
+  let port: number | undefined
+  let user: string | undefined
+  let host: string | undefined
+
+  for (let i = 1; i < tokens.length; i += 1) {
+    const token = tokens[i]
+    if (token === '-p' && i + 1 < tokens.length) {
+      const parsedPort = Number.parseInt(tokens[i + 1], 10)
+      if (!Number.isNaN(parsedPort)) {
+        port = parsedPort
+      }
+      i += 1
+      continue
+    }
+
+    if (!token.startsWith('-') && !host) {
+      const [candidateUser, candidateHost] = token.split('@')
+      if (candidateHost) {
+        user = candidateUser
+        host = candidateHost
+      } else {
+        host = candidateUser
+      }
+    }
+  }
+
+  return {
+    isSsh: true,
+    user,
+    host,
+    port,
+  }
+}
+
+function titleFromRawCommand(rawCommand: string): string {
+  const parsed = parseSshCommand(rawCommand)
+  if (parsed.host) {
+    return parsed.user ? `${parsed.user}@${parsed.host}` : parsed.host
+  }
+  return rawCommand.slice(0, 28) || 'SSH'
+}
+
+function downloadTextFile(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 function TerminalSession({
   session,
   isActive,
+  onResize,
 }: {
   session: SessionTab
   isActive: boolean
+  onResize: (sessionId: string, cols: number, rows: number) => Promise<void>
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const searchAddonRef = useRef<SearchAddon | null>(null)
-  const websocketRef = useRef<WebSocket | null>(null)
-  const pollTimerRef = useRef<number | null>(null)
-  const cursorRef = useRef<string | undefined>(undefined)
+  const socketRef = useRef<WebSocket | null>(null)
   const ctrlArmedRef = useRef(false)
   const [ctrlArmed, setCtrlArmed] = useState(false)
 
@@ -118,19 +129,14 @@ function TerminalSession({
     ctrlArmedRef.current = ctrlArmed
   }, [ctrlArmed])
 
-  const sendData = useCallback(async (data: string) => {
-    const socket = websocketRef.current
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(data)
+  const sendInput = useCallback((data: string) => {
+    const socket = socketRef.current
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      terminalRef.current?.writeln('\r\n\x1b[31mSession socket is not connected.\x1b[0m')
       return
     }
-
-    try {
-      await apiClient.sendSshInput(session.id, data)
-    } catch {
-      terminalRef.current?.writeln('\r\n\x1b[31mFailed to send input to backend.\x1b[0m')
-    }
-  }, [session.id])
+    socket.send(data)
+  }, [])
 
   useEffect(() => {
     const terminal = new Terminal({
@@ -139,31 +145,33 @@ function TerminalSession({
       allowProposedApi: true,
       fontFamily: '"Fira Code", "SFMono-Regular", Consolas, monospace',
       fontSize: 14,
-      lineHeight: 1.25,
+      lineHeight: 1.22,
+      scrollback: 8000,
       theme: {
         background: '#0c1118',
         foreground: '#d6dfeb',
         cursor: '#14b8a6',
       },
-      scrollback: 5000,
     })
+
     const fitAddon = new FitAddon()
-    const webLinks = new WebLinksAddon()
+    const webLinksAddon = new WebLinksAddon()
     const searchAddon = new SearchAddon()
+
     terminal.loadAddon(fitAddon)
-    terminal.loadAddon(webLinks)
+    terminal.loadAddon(webLinksAddon)
     terminal.loadAddon(searchAddon)
+
     try {
-      const webgl = new WebglAddon()
-      terminal.loadAddon(webgl)
-      webgl.onContextLoss(() => webgl.dispose())
+      const webglAddon = new WebglAddon()
+      terminal.loadAddon(webglAddon)
+      webglAddon.onContextLoss(() => webglAddon.dispose())
     } catch {
-      // Optional addon: soft-fail on unsupported devices.
+      // Optional addon: no-op if unsupported.
     }
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
-    searchAddonRef.current = searchAddon
 
     if (containerRef.current) {
       terminal.open(containerRef.current)
@@ -172,17 +180,67 @@ function TerminalSession({
 
     terminal.writeln('\x1b[1;36mDaedalus SSH Workbench\x1b[0m')
     terminal.writeln(`Session: ${session.title}`)
-    terminal.writeln('Tip: Ctrl+Shift+F opens quick search.')
     terminal.writeln('')
 
+    const socket = new WebSocket(session.websocketUrl)
+    socketRef.current = socket
+
+    socket.onopen = () => {
+      void onResize(session.id, terminal.cols, terminal.rows)
+    }
+
+    socket.onmessage = (event) => {
+      const raw = typeof event.data === 'string' ? event.data : ''
+      if (!raw) return
+
+      try {
+        const parsed = JSON.parse(raw) as { type?: string; data?: string; message?: string; mode?: string; bind?: string; target?: string }
+
+        if (parsed.type === 'ready') {
+          return
+        }
+
+        if (parsed.type === 'output' && typeof parsed.data === 'string') {
+          terminal.write(parsed.data)
+          return
+        }
+
+        if (parsed.type === 'error') {
+          terminal.writeln(`\r\n\x1b[31m${parsed.message ?? 'Session error'}\x1b[0m`)
+          return
+        }
+
+        if (parsed.type === 'closed') {
+          terminal.writeln('\r\n\x1b[33mSession closed.\x1b[0m')
+          return
+        }
+
+        if (parsed.type === 'forward') {
+          const target = parsed.target ? ` -> ${parsed.target}` : ''
+          terminal.writeln(`\r\n\x1b[35mForward ${parsed.mode ?? ''}: ${parsed.bind ?? ''}${target}\x1b[0m`)
+          return
+        }
+
+        terminal.write(raw)
+      } catch {
+        terminal.write(raw)
+      }
+    }
+
+    socket.onerror = () => {
+      terminal.writeln('\r\n\x1b[31mWebSocket error.\x1b[0m')
+    }
+
+    socket.onclose = () => {
+      terminal.writeln('\r\n\x1b[33mWebSocket disconnected.\x1b[0m')
+    }
+
     const onDataDisposable = terminal.onData((data) => {
-      void sendData(data)
+      sendInput(data)
     })
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== 'keydown') {
-        return true
-      }
+      if (event.type !== 'keydown') return true
 
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'f') {
         const query = window.prompt('Search terminal buffer')
@@ -195,7 +253,7 @@ function TerminalSession({
       if (ctrlArmedRef.current && event.key.length === 1) {
         const code = event.key.toUpperCase().charCodeAt(0) - 64
         if (code >= 1 && code <= 31) {
-          void sendData(String.fromCharCode(code))
+          sendInput(String.fromCharCode(code))
           setCtrlArmed(false)
           return false
         }
@@ -205,83 +263,34 @@ function TerminalSession({
     })
 
     const onResizeDisposable = terminal.onResize((event) => {
-      void apiClient.resizeSshSession(session.id, event.cols, event.rows)
+      void onResize(session.id, event.cols, event.rows)
     })
 
-    let isCancelled = false
-    const connect = async () => {
-      if (session.websocketUrl) {
-        const socket = new WebSocket(session.websocketUrl)
-        websocketRef.current = socket
-        socket.onmessage = (event) => {
-          terminal.write(typeof event.data === 'string' ? event.data : '')
-        }
-        socket.onopen = () => {
-          void apiClient.resizeSshSession(session.id, terminal.cols, terminal.rows)
-        }
-        socket.onerror = () => {
-          terminal.writeln('\r\n\x1b[31mWebSocket error.\x1b[0m')
-        }
-        socket.onclose = () => {
-          terminal.writeln('\r\n\x1b[33mSession connection closed.\x1b[0m')
-        }
-        return
-      }
-
-      const poll = async () => {
-        if (isCancelled) return
-        try {
-          const output = await apiClient.readSshOutput(session.id, cursorRef.current)
-          if (output.data) {
-            terminal.write(output.data)
-          }
-          cursorRef.current = output.cursor ?? cursorRef.current
-        } catch (error) {
-          if (error instanceof ApiError) {
-            terminal.writeln(`\r\n\x1b[31mOutput error: ${error.message}\x1b[0m`)
-          } else {
-            terminal.writeln('\r\n\x1b[31mOutput polling failed.\x1b[0m')
-          }
-        }
-      }
-
-      await poll()
-      pollTimerRef.current = window.setInterval(() => {
-        void poll()
-      }, 700)
-    }
-
-    void connect()
-
     return () => {
-      isCancelled = true
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      if (pollTimerRef.current !== null) {
-        window.clearInterval(pollTimerRef.current)
-      }
-      websocketRef.current?.close()
+      socket.close()
       terminal.dispose()
       terminalRef.current = null
       fitAddonRef.current = null
-      searchAddonRef.current = null
+      socketRef.current = null
     }
-  }, [sendData, session.id, session.title, session.websocketUrl])
+  }, [onResize, sendInput, session.id, session.title, session.websocketUrl])
 
   useEffect(() => {
-    if (!isActive) {
-      return
-    }
+    if (!isActive) return
+
     const timer = window.setTimeout(() => {
       fitAddonRef.current?.fit()
       terminalRef.current?.focus()
-    }, 25)
+    }, 40)
+
     return () => window.clearTimeout(timer)
   }, [isActive])
 
   const handleControlPress = useCallback(async (control: MobileControl) => {
     if (control.action === 'ctrl') {
-      setCtrlArmed((current) => !current)
+      setCtrlArmed((previous) => !previous)
       terminalRef.current?.focus()
       return
     }
@@ -289,21 +298,19 @@ function TerminalSession({
     if (control.action === 'paste') {
       try {
         const text = await navigator.clipboard.readText()
-        if (text) {
-          await sendData(text)
-        }
+        if (text) sendInput(text)
       } catch {
-        terminalRef.current?.writeln('\r\n\x1b[31mClipboard read blocked by browser.\x1b[0m')
+        terminalRef.current?.writeln('\r\n\x1b[31mClipboard access denied.\x1b[0m')
       }
       terminalRef.current?.focus()
       return
     }
 
     if (control.sequence) {
-      await sendData(control.sequence)
+      sendInput(control.sequence)
       terminalRef.current?.focus()
     }
-  }, [sendData])
+  }, [sendInput])
 
   return (
     <section className={`terminal-session ${isActive ? 'active' : ''}`}>
@@ -327,16 +334,29 @@ function TerminalSession({
 }
 
 function App() {
-  const [commandInput, setCommandInput] = useState('ssh root@example.com -p 22')
+  const { user } = useTelegram()
+
+  const derivedUserId = useMemo(() => {
+    const queryValue = new URLSearchParams(window.location.search).get('tgUserId')
+    if (queryValue) return queryValue
+    if (user?.id) return String(user.id)
+    return 'local-dev'
+  }, [user])
+
+  const apiClient = useMemo(() => createApiClient(derivedUserId), [derivedUserId])
+
+  const [commandInput, setCommandInput] = useState('ssh root@34.186.124.156 -p 22')
   const [sessions, setSessions] = useState<SessionTab[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [savedHosts, setSavedHosts] = useState<SavedHost[]>([])
   const [hostsError, setHostsError] = useState<string | null>(null)
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
-  const [vaultSecret, setVaultSecret] = useState('')
+  const [vaultPassphrase, setVaultPassphrase] = useState('')
+  const [vaultToken, setVaultToken] = useState<string | null>(null)
   const [recoveryPhrase, setRecoveryPhrase] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
 
   const parsedCommand = useMemo(() => parseSshCommand(commandInput.trim()), [commandInput])
 
@@ -352,40 +372,50 @@ function App() {
         setHostsError('Failed to load saved hosts.')
       }
     }
-  }, [])
+  }, [apiClient])
 
   const refreshVaultStatus = useCallback(async () => {
     try {
       const status = await apiClient.getVaultStatus()
       setVaultStatus(status)
+      if (!status.unlocked) {
+        setVaultToken(null)
+      }
     } catch {
       setVaultStatus(null)
+      setVaultToken(null)
     }
-  }, [])
+  }, [apiClient])
 
   useEffect(() => {
     void refreshSavedHosts()
     void refreshVaultStatus()
   }, [refreshSavedHosts, refreshVaultStatus])
 
-  const createSessionFromCommand = useCallback(async (rawCommand: string, title?: string) => {
+  const createSession = useCallback(async (rawCommand: string, titleOverride?: string) => {
     if (!rawCommand.trim()) {
       setStatusLine('Command is required.')
       return
     }
+
     setBusy(true)
     setStatusLine('Creating SSH session...')
+
     try {
-      const response: CreateSshSessionResponse = await apiClient.createSshSession({ rawCommand })
-      const nextSession: SessionTab = {
-        id: response.sessionId,
-        title: title ?? toTitleFromCommand(rawCommand),
+      const created: CreateSshSessionResponse = await apiClient.createSshSession({
         rawCommand,
-        websocketUrl: response.websocketUrl,
+        vaultToken: vaultToken ?? undefined,
+      })
+
+      const nextTab: SessionTab = {
+        id: created.sessionId,
+        title: titleOverride ?? created.title ?? titleFromRawCommand(rawCommand),
+        websocketUrl: created.websocketUrl,
       }
-      setSessions((current) => [nextSession, ...current])
-      setActiveSessionId(nextSession.id)
-      setStatusLine(`Connected: ${nextSession.title}`)
+
+      setSessions((previous) => [nextTab, ...previous])
+      setActiveSessionId(nextTab.id)
+      setStatusLine(`Connected: ${nextTab.title}`)
     } catch (error) {
       if (error instanceof ApiError) {
         setStatusLine(`Failed to create session: ${error.message}`)
@@ -395,64 +425,74 @@ function App() {
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [apiClient, vaultToken])
 
   const closeSession = useCallback(async (sessionId: string) => {
-    setSessions((current) => {
-      const remaining = current.filter((session) => session.id !== sessionId)
+    setSessions((previous) => {
+      const remaining = previous.filter((session) => session.id !== sessionId)
       if (activeSessionId === sessionId) {
         setActiveSessionId(remaining[0]?.id ?? null)
       }
       return remaining
     })
+
     try {
       await apiClient.closeSshSession(sessionId)
     } catch {
-      // Best-effort close on backend.
+      // best effort
     }
-  }, [activeSessionId])
+  }, [activeSessionId, apiClient])
 
   const handleVaultInit = useCallback(async () => {
-    if (!vaultSecret.trim()) {
+    if (!vaultPassphrase.trim()) {
       setStatusLine('Vault passphrase is required.')
       return
     }
+
     setBusy(true)
     try {
-      await apiClient.initVault(vaultSecret)
-      setVaultSecret('')
-      setStatusLine('Vault initialized.')
+      const result = await apiClient.initVault(vaultPassphrase)
+      setRecoveryPhrase(result.recoveryPhrase)
+      setStatusLine('Vault initialized. Save your recovery phrase.')
+      setVaultPassphrase('')
       await refreshVaultStatus()
     } catch (error) {
       setStatusLine(error instanceof ApiError ? error.message : 'Vault init failed.')
     } finally {
       setBusy(false)
     }
-  }, [refreshVaultStatus, vaultSecret])
+  }, [apiClient, refreshVaultStatus, vaultPassphrase])
 
   const handleVaultUnlock = useCallback(async () => {
-    if (!vaultSecret.trim()) {
+    if (!vaultPassphrase.trim()) {
       setStatusLine('Vault passphrase is required.')
       return
     }
+
     setBusy(true)
     try {
-      await apiClient.unlockVault(vaultSecret)
-      setVaultSecret('')
+      const result = await apiClient.unlockVault(vaultPassphrase)
+      setVaultToken(result.token)
       setStatusLine('Vault unlocked.')
+      setVaultPassphrase('')
       await refreshVaultStatus()
     } catch (error) {
       setStatusLine(error instanceof ApiError ? error.message : 'Vault unlock failed.')
     } finally {
       setBusy(false)
     }
-  }, [refreshVaultStatus, vaultSecret])
+  }, [apiClient, refreshVaultStatus, vaultPassphrase])
 
   const handleVaultLock = useCallback(async () => {
+    if (!vaultToken) {
+      setStatusLine('Vault is already locked.')
+      return
+    }
+
     setBusy(true)
     try {
-      await apiClient.lockVault()
-      setRecoveryPhrase(null)
+      await apiClient.lockVault(vaultToken)
+      setVaultToken(null)
       setStatusLine('Vault locked.')
       await refreshVaultStatus()
     } catch (error) {
@@ -460,25 +500,13 @@ function App() {
     } finally {
       setBusy(false)
     }
-  }, [refreshVaultStatus])
-
-  const handleRecoveryPhrase = useCallback(async () => {
-    setBusy(true)
-    try {
-      const phrase = await apiClient.getRecoveryPhrase()
-      setRecoveryPhrase(phrase)
-      setStatusLine('Recovery phrase loaded.')
-    } catch (error) {
-      setStatusLine(error instanceof ApiError ? error.message : 'Failed to load recovery phrase.')
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+  }, [apiClient, refreshVaultStatus, vaultToken])
 
   return (
-    <main className="workbench-shell">
+    <main className={`workbench-shell ${fullscreen ? 'workbench-fullscreen' : ''}`}>
       <aside className="workbench-sidebar">
         <h1>Daedalus SSH Workbench</h1>
+        <p className="hint">User: {derivedUserId}</p>
 
         <div className="panel glass">
           <h2>New Session</h2>
@@ -487,7 +515,7 @@ function App() {
             id="ssh-command"
             value={commandInput}
             onChange={(event) => setCommandInput(event.target.value)}
-            placeholder="ssh user@host -p 22"
+            placeholder="ssh user@34.186.124.156 -p 22"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
@@ -497,7 +525,7 @@ function App() {
             className="btn-emerald"
             disabled={busy}
             onClick={() => {
-              void createSessionFromCommand(commandInput.trim())
+              void createSession(commandInput.trim())
             }}
           >
             Open Session
@@ -516,17 +544,17 @@ function App() {
           {!hostsError && savedHosts.length === 0 && <p className="hint">No saved hosts yet.</p>}
           <ul className="host-list">
             {savedHosts.map((host) => {
-              const defaultCommand = host.rawCommand ?? `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? ` -p ${host.port}` : ''}`
+              const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? ` -p ${host.port}` : ''}`
               return (
                 <li key={host.id}>
                   <div>
                     <strong>{host.name}</strong>
-                    <span>{defaultCommand}</span>
+                    <span>{command}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      void createSessionFromCommand(defaultCommand, host.name)
+                      void createSession(command, host.name)
                     }}
                     disabled={busy}
                   >
@@ -541,26 +569,51 @@ function App() {
         <div className="panel glass">
           <h2>Vault</h2>
           <p className="hint">
-            Status: {vaultStatus ? (vaultStatus.initialized ? (vaultStatus.locked ? 'Locked' : 'Unlocked') : 'Not initialized') : 'Unavailable'}
+            Status: {vaultStatus ? (vaultStatus.initialized ? (vaultStatus.unlocked ? 'Unlocked' : 'Locked') : 'Not initialized') : 'Unavailable'}
           </p>
           <input
-            value={vaultSecret}
+            value={vaultPassphrase}
             type="password"
-            placeholder="Vault passphrase"
-            onChange={(event) => setVaultSecret(event.target.value)}
+            placeholder="Master passphrase"
+            onChange={(event) => setVaultPassphrase(event.target.value)}
           />
           <div className="vault-actions">
-            {!vaultStatus?.initialized && <button type="button" onClick={() => void handleVaultInit()} disabled={busy}>Init</button>}
-            {vaultStatus?.initialized && vaultStatus.locked && <button type="button" onClick={() => void handleVaultUnlock()} disabled={busy}>Unlock</button>}
-            {vaultStatus?.initialized && !vaultStatus.locked && <button type="button" onClick={() => void handleVaultLock()} disabled={busy}>Lock</button>}
-            <button type="button" onClick={() => void handleRecoveryPhrase()} disabled={busy}>Recovery Phrase</button>
+            {!vaultStatus?.initialized && (
+              <button type="button" onClick={() => void handleVaultInit()} disabled={busy}>Init</button>
+            )}
+            {vaultStatus?.initialized && !vaultStatus.unlocked && (
+              <button type="button" onClick={() => void handleVaultUnlock()} disabled={busy}>Unlock</button>
+            )}
+            {vaultStatus?.initialized && vaultStatus.unlocked && (
+              <button type="button" onClick={() => void handleVaultLock()} disabled={busy}>Lock</button>
+            )}
           </div>
-          {recoveryPhrase && <pre className="recovery-phrase">{recoveryPhrase}</pre>}
+          {recoveryPhrase && (
+            <>
+              <pre className="recovery-phrase">{recoveryPhrase}</pre>
+              <button
+                type="button"
+                onClick={() => {
+                  downloadTextFile('daedalus-recovery-phrase.txt', recoveryPhrase)
+                }}
+              >
+                Download Recovery TXT
+              </button>
+            </>
+          )}
         </div>
       </aside>
 
       <section className="workbench-main">
         <div className="tabs">
+          <button
+            type="button"
+            className="tab"
+            onClick={() => setFullscreen((current) => !current)}
+          >
+            {fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
+
           {sessions.map((session) => (
             <button
               key={session.id}
@@ -594,9 +647,21 @@ function App() {
 
         <div className="terminal-area">
           {sessions.map((session) => (
-            <TerminalSession key={session.id} session={session} isActive={session.id === activeSessionId} />
+            <TerminalSession
+              key={session.id}
+              session={session}
+              isActive={session.id === activeSessionId}
+              onResize={async (sessionId, cols, rows) => {
+                try {
+                  await apiClient.resizeSshSession(sessionId, cols, rows)
+                } catch {
+                  // best effort
+                }
+              }}
+            />
           ))}
         </div>
+
         {statusLine && <p className="status-line">{statusLine}</p>}
       </section>
     </main>
