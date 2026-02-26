@@ -546,9 +546,14 @@ body {
 
   .mobile-close-sidebar {
     display: inline-flex;
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 2;
   }
 
   .sidebar-scrim {
+    display: block;
     position: fixed;
     inset: 0;
     z-index: 40;
@@ -556,6 +561,7 @@ body {
     border: 0;
     margin: 0;
     padding: 0;
+    touch-action: none;
   }
 }
 
@@ -568,6 +574,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+  position: relative;
 }
 
 .sidebar-actions {
