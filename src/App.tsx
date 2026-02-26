@@ -115,6 +115,305 @@ function downloadTextFile(filename: string, text: string): void {
   URL.revokeObjectURL(url)
 }
 
+// ---------------------------------------------------------------------------
+// VaultScreen
+// ---------------------------------------------------------------------------
+
+type VaultScreenProps = {
+  vaultInitialized: boolean
+  vaultPassphrase: string
+  setVaultPassphrase: (value: string) => void
+  busy: boolean
+  recoveryPhrase: string | null
+  onInit: () => void
+  onUnlock: () => void
+}
+
+function VaultScreen({
+  vaultInitialized,
+  vaultPassphrase,
+  setVaultPassphrase,
+  busy,
+  recoveryPhrase,
+  onInit,
+  onUnlock,
+}: VaultScreenProps) {
+  const title = !vaultInitialized ? 'Initialize Vault' : 'Unlock Vault'
+  const icon = !vaultInitialized ? '🔐' : '🔒'
+  const hint = !vaultInitialized
+    ? 'Create a master passphrase to enable SSH credentials storage.'
+    : 'Vault is locked. Enter your master passphrase to continue.'
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      if (!vaultInitialized) {
+        onInit()
+      } else {
+        onUnlock()
+      }
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop vault-lock-overlay"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div
+        className="modal-card glass vault-lock-card"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="vault-screen-header">
+          <span className="vault-icon">{icon}</span>
+          <h2>{title}</h2>
+          <p className="hint">{hint}</p>
+        </div>
+
+        <input
+          value={vaultPassphrase}
+          type="password"
+          placeholder="Master passphrase"
+          className="vault-passphrase-input"
+          autoFocus
+          onChange={(event) => setVaultPassphrase(event.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={!vaultInitialized ? onInit : onUnlock}
+          disabled={busy || !vaultPassphrase.trim()}
+        >
+          {busy ? 'Please wait…' : title}
+        </button>
+
+        {recoveryPhrase && (
+          <div className="recovery-section">
+            <p>Recovery phrase — save this somewhere safe:</p>
+            <pre className="recovery-phrase">{recoveryPhrase}</pre>
+            <button
+              type="button"
+              onClick={() => {
+                downloadTextFile('daedalus-recovery-phrase.txt', recoveryPhrase)
+              }}
+            >
+              Download Recovery TXT
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SessionDialog
+// ---------------------------------------------------------------------------
+
+type SessionDialogProps = {
+  sessionCommand: string
+  setSessionCommand: (value: string) => void
+  parsedCommand: ParsedSshCommand
+  authMethod: 'key' | 'password' | 'none'
+  setAuthMethod: (method: 'key' | 'password' | 'none') => void
+  authPassword: string
+  setAuthPassword: (value: string) => void
+  authPrivateKey: string
+  setAuthPrivateKey: (value: string) => void
+  authPrivateKeyFilename: string
+  authKeyPassphrase: string
+  setAuthKeyPassphrase: (value: string) => void
+  saveHostEnabled: boolean
+  setSaveHostEnabled: (value: boolean) => void
+  saveHostLabel: string
+  setSaveHostLabel: (value: string) => void
+  isHostAlreadySaved: boolean
+  vaultToken: string | null
+  busy: boolean
+  keyFileInputRef: React.RefObject<HTMLInputElement>
+  onKeyFileSelected: (event: ChangeEvent<HTMLInputElement>) => void
+  onConnect: () => void
+  onCancel: () => void
+}
+
+function SessionDialog({
+  sessionCommand,
+  setSessionCommand,
+  parsedCommand,
+  authMethod,
+  setAuthMethod,
+  authPassword,
+  setAuthPassword,
+  authPrivateKey,
+  setAuthPrivateKey,
+  authPrivateKeyFilename,
+  authKeyPassphrase,
+  setAuthKeyPassphrase,
+  saveHostEnabled,
+  setSaveHostEnabled,
+  saveHostLabel,
+  setSaveHostLabel,
+  isHostAlreadySaved,
+  vaultToken,
+  busy,
+  keyFileInputRef,
+  onKeyFileSelected,
+  onConnect,
+  onCancel,
+}: SessionDialogProps) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal-card glass" onClick={(event) => event.stopPropagation()}>
+        <h2>New SSH Session</h2>
+
+        <div className="auth-form">
+          <label htmlFor="session-command-input">SSH command</label>
+          <input
+            id="session-command-input"
+            value={sessionCommand}
+            onChange={(event) => setSessionCommand(event.target.value)}
+            placeholder="ssh user@hostname"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            autoFocus
+          />
+          <p className="hint">
+            Parser: {parsedCommand.isSsh ? 'ssh' : 'raw'} {parsedCommand.user ?? ''}{parsedCommand.host ? `@${parsedCommand.host}` : ''}{parsedCommand.port ? ` :${parsedCommand.port}` : ''}
+          </p>
+        </div>
+
+        <div className="auth-methods">
+          <button
+            type="button"
+            className={authMethod === 'key' ? 'auth-method-btn active' : 'auth-method-btn'}
+            onClick={() => setAuthMethod('key')}
+          >
+            Private Key
+          </button>
+          <button
+            type="button"
+            className={authMethod === 'password' ? 'auth-method-btn active' : 'auth-method-btn'}
+            onClick={() => setAuthMethod('password')}
+          >
+            Password
+          </button>
+          <button
+            type="button"
+            className={authMethod === 'none' ? 'auth-method-btn active' : 'auth-method-btn'}
+            onClick={() => setAuthMethod('none')}
+          >
+            Vault/Profile Only
+          </button>
+        </div>
+
+        {authMethod === 'key' && (
+          <div className="auth-form">
+            <div className="auth-actions-row">
+              <button
+                type="button"
+                onClick={() => keyFileInputRef.current?.click()}
+              >
+                Upload key file
+              </button>
+              {authPrivateKeyFilename && <span className="hint">{authPrivateKeyFilename}</span>}
+            </div>
+            <input
+              ref={keyFileInputRef as React.RefObject<HTMLInputElement>}
+              type="file"
+              className="hidden"
+              accept=".pem,.key,.ppk,.txt,*/*"
+              onChange={(event) => { onKeyFileSelected(event) }}
+            />
+            <textarea
+              value={authPrivateKey}
+              onChange={(event) => setAuthPrivateKey(event.target.value)}
+              placeholder="Paste private key here"
+              className="auth-textarea"
+            />
+            <label>
+              Key passphrase (optional)
+              <input
+                value={authKeyPassphrase}
+                onChange={(event) => setAuthKeyPassphrase(event.target.value)}
+                type="password"
+                placeholder="Key passphrase (optional)"
+              />
+            </label>
+          </div>
+        )}
+
+        {authMethod === 'password' && (
+          <div className="auth-form">
+            <label>
+              SSH password
+              <input
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                type="password"
+                placeholder="SSH password"
+              />
+            </label>
+          </div>
+        )}
+
+        {authMethod === 'none' && (
+          <p className="hint">
+            Connect using vault-stored credentials or SSH agent profile. No per-session credentials needed.
+          </p>
+        )}
+
+        {isHostAlreadySaved ? (
+          <span className="host-saved-badge">✓ Host already saved in sidebar</span>
+        ) : (
+          <div className="save-host-box">
+            <label className="save-host-row">
+              <input
+                type="checkbox"
+                checked={saveHostEnabled}
+                onChange={(event) => setSaveHostEnabled(event.target.checked)}
+              />
+              <span>Save host after connect</span>
+            </label>
+
+            {saveHostEnabled && (
+              <>
+                <input
+                  value={saveHostLabel}
+                  onChange={(event) => setSaveHostLabel(event.target.value)}
+                  placeholder="Host label (e.g. Dokploy Prod)"
+                />
+                <p className="hint">
+                  {vaultToken
+                    ? 'Credentials will be encrypted in vault when provided.'
+                    : 'No vault session token — host metadata will be saved but credentials cannot be stored.'}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button
+            type="button"
+            className="btn-emerald"
+            onClick={onConnect}
+            disabled={busy}
+          >
+            {busy ? 'Connecting…' : 'Connect'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TerminalSession
+// ---------------------------------------------------------------------------
+
 function TerminalSession({
   session,
   isActive,
@@ -156,7 +455,9 @@ function TerminalSession({
       theme: {
         background: '#0c1118',
         foreground: '#d6dfeb',
-        cursor: '#14b8a6',
+        cursor: '#00D492',
+        cursorAccent: '#0a0f16',
+        selectionBackground: 'rgba(0,212,146,0.25)',
       },
     })
 
@@ -184,7 +485,7 @@ function TerminalSession({
       fitAddon.fit()
     }
 
-    terminal.writeln('\x1b[1;36mDaedalus SSH Workbench\x1b[0m')
+    terminal.writeln('\x1b[1;32mDaedalus SSH Workbench\x1b[0m')
     terminal.writeln(`Session: ${session.title}`)
     terminal.writeln('')
 
@@ -362,6 +663,10 @@ function TerminalSession({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function extractTelegramUserIdFromContext(): string | null {
   const fromQuery = new URLSearchParams(window.location.search).get('tgUserId')
   if (fromQuery) return fromQuery
@@ -406,6 +711,10 @@ function extractTelegramUserIdFromContext(): string | null {
   return null
 }
 
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
+
 function App() {
   const { user } = useTelegram()
 
@@ -440,7 +749,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const [showSessionDialog, setShowSessionDialog] = useState(false)
-  const [sessionCommand, setSessionCommand] = useState('ssh root@34.186.124.156 -p 22')
+  const [sessionCommand, setSessionCommand] = useState('')
   const [authMethod, setAuthMethod] = useState<'key' | 'password' | 'none'>('key')
   const [authPassword, setAuthPassword] = useState('')
   const [authPrivateKey, setAuthPrivateKey] = useState('')
@@ -448,7 +757,7 @@ function App() {
   const [authKeyPassphrase, setAuthKeyPassphrase] = useState('')
   const [saveHostEnabled, setSaveHostEnabled] = useState(false)
   const [saveHostLabel, setSaveHostLabel] = useState('')
-  const keyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const keyFileInputRef = useRef<HTMLInputElement>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
   const vaultInitialized = Boolean(vaultStatus?.initialized)
@@ -476,6 +785,13 @@ function App() {
       setSaveHostEnabled(false)
     }
   }, [isHostAlreadySaved])
+
+  // Auto-clear status line after 7 seconds
+  useEffect(() => {
+    if (!statusLine) return
+    const timer = window.setTimeout(() => setStatusLine(null), 7000)
+    return () => window.clearTimeout(timer)
+  }, [statusLine])
 
   const refreshSavedHosts = useCallback(async () => {
     try {
@@ -708,11 +1024,6 @@ function App() {
   }, [apiClient, refreshVaultStatus, vaultToken])
 
   const handleOpenSessionClick = useCallback((prefillCommand?: string) => {
-    if (!vaultUnlocked) {
-      setStatusLine('Unlock vault to open a new session.')
-      return
-    }
-
     const command = prefillCommand ?? sessionCommand
     if (prefillCommand) {
       setSessionCommand(prefillCommand)
@@ -729,7 +1040,7 @@ function App() {
     setAuthKeyPassphrase('')
     setShowSessionDialog(true)
     setSidebarOpen(false)
-  }, [sessionCommand, vaultUnlocked])
+  }, [sessionCommand])
 
   const handleAuthKeyFileSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -837,6 +1148,16 @@ function App() {
     vaultToken,
   ])
 
+  // Classify status line text for styling
+  const statusLineClass = useMemo(() => {
+    if (!statusLine) return 'status-line'
+    const lower = statusLine.toLowerCase()
+    if (lower.includes('fail') || lower.includes('error') || lower.includes('denied') || lower.includes('warning')) {
+      return 'status-line status-error'
+    }
+    return 'status-line status-success'
+  }, [statusLine])
+
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
@@ -851,7 +1172,7 @@ function App() {
           <div className="sidebar-actions">
             <button
               type="button"
-              className="vault-indicator"
+              className={`vault-indicator${vaultUnlocked ? ' unlocked' : ''}`}
               onClick={() => {
                 if (vaultUnlocked) {
                   void handleVaultLock()
@@ -876,7 +1197,7 @@ function App() {
         <button
           type="button"
           className="btn-emerald new-session-btn"
-          disabled={busy || !vaultUnlocked}
+          disabled={busy}
           onClick={() => handleOpenSessionClick()}
         >
           + New Session
@@ -889,11 +1210,17 @@ function App() {
           </div>
 
           {hostsError && <p className="error">{hostsError}</p>}
-          {!hostsError && savedHosts.length === 0 && <p className="hint">No saved hosts yet.</p>}
+          {!hostsError && savedHosts.length === 0 && (
+            <div className="hosts-empty">
+              <span>No saved hosts yet.</span>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)' }}>Connect and save a host to see it here.</span>
+            </div>
+          )}
 
           <nav className="hosts-nav">
             {savedHosts.map((host) => {
-              const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? ` -p ${host.port}` : ''}`
+              const portSuffix = host.port && host.port !== 22 ? ` -p ${host.port}` : ''
+              const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${portSuffix}`
               return (
                 <div key={host.id} className="host-nav-item">
                   <button
@@ -952,30 +1279,29 @@ function App() {
               onClick={() => setActiveSessionId(session.id)}
             >
               <span>{session.title}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                className="close"
+              <button
+                type="button"
+                className="tab-close-btn"
                 onClick={(event) => {
                   event.stopPropagation()
                   void closeSession(session.id)
                 }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    void closeSession(session.id)
-                  }
-                }}
+                aria-label={`Close ${session.title}`}
               >
                 ×
-              </span>
+              </button>
             </button>
           ))}
           {sessions.length === 0 && <p className="hint empty-tabs">No active sessions.</p>}
         </div>
 
         <div className="terminal-area">
+          {sessions.length === 0 && (
+            <div className="terminal-empty">
+              <span className="terminal-empty-logo">Daedalus</span>
+              <span className="terminal-empty-hint">Open a new session to get started</span>
+            </div>
+          )}
           {sessions.map((session) => (
             <TerminalSession
               key={session.id}
@@ -992,205 +1318,47 @@ function App() {
           ))}
         </div>
 
-        {statusLine && <p className="status-line">{statusLine}</p>}
+        {statusLine && <p className={statusLineClass}>{statusLine}</p>}
       </section>
 
       {showVaultLockScreen && (
-        <div className="modal-backdrop vault-lock-overlay" onClick={(event) => event.stopPropagation()}>
-          <div className="modal-card glass vault-lock-card" onClick={(event) => event.stopPropagation()}>
-            <h2>
-              {!vaultInitialized
-                ? 'Initialize Vault'
-                : !vaultUnlocked
-                  ? 'Unlock Vault'
-                  : 'Vault Session Required'}
-            </h2>
-            <p className="hint">
-              {!vaultInitialized
-                ? 'Create a master passphrase to enable SSH credentials storage.'
-                : !vaultUnlocked
-                  ? 'Vault is locked. Enter your master passphrase to continue.'
-                  : 'Vault is active but no session token exists for this page load. Re-enter your passphrase to get a token and enable credential storage.'}
-            </p>
-
-            <input
-              value={vaultPassphrase}
-              type="password"
-              placeholder="Master passphrase"
-              onChange={(event) => setVaultPassphrase(event.target.value)}
-            />
-
-            <div className="modal-actions">
-              {!vaultInitialized ? (
-                <button
-                  type="button"
-                  className="btn-emerald"
-                  onClick={() => { void handleVaultInit() }}
-                  disabled={busy}
-                >
-                  Initialize Vault
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-emerald"
-                  onClick={() => { void handleVaultUnlock() }}
-                  disabled={busy}
-                >
-                  {vaultUnlocked ? 'Get Session Token' : 'Unlock Vault'}
-                </button>
-              )}
-            </div>
-
-            {recoveryPhrase && (
-              <>
-                <pre className="recovery-phrase">{recoveryPhrase}</pre>
-                <button
-                  type="button"
-                  onClick={() => {
-                    downloadTextFile('daedalus-recovery-phrase.txt', recoveryPhrase)
-                  }}
-                >
-                  Download Recovery TXT
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <VaultScreen
+          vaultInitialized={vaultInitialized}
+          vaultPassphrase={vaultPassphrase}
+          setVaultPassphrase={setVaultPassphrase}
+          busy={busy}
+          recoveryPhrase={recoveryPhrase}
+          onInit={() => { void handleVaultInit() }}
+          onUnlock={() => { void handleVaultUnlock() }}
+        />
       )}
 
       {showSessionDialog && (
-        <div className="modal-backdrop" onClick={() => setShowSessionDialog(false)}>
-          <div className="modal-card glass" onClick={(event) => event.stopPropagation()}>
-            <h2>New SSH Session</h2>
-
-            <div className="auth-form">
-              <label htmlFor="session-command-input">SSH command</label>
-              <input
-                id="session-command-input"
-                value={sessionCommand}
-                onChange={(event) => setSessionCommand(event.target.value)}
-                placeholder="ssh sb@34.186.124.156 -p 22"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <p className="hint">
-                Parser: {parsedCommand.isSsh ? 'ssh' : 'raw'} {parsedCommand.user ?? ''}{parsedCommand.host ? `@${parsedCommand.host}` : ''}{parsedCommand.port ? ` :${parsedCommand.port}` : ''}
-              </p>
-            </div>
-
-            <div className="auth-methods">
-              <button
-                type="button"
-                className={authMethod === 'key' ? 'tab active' : 'tab'}
-                onClick={() => setAuthMethod('key')}
-              >
-                Private Key
-              </button>
-              <button
-                type="button"
-                className={authMethod === 'password' ? 'tab active' : 'tab'}
-                onClick={() => setAuthMethod('password')}
-              >
-                Password
-              </button>
-              <button
-                type="button"
-                className={authMethod === 'none' ? 'tab active' : 'tab'}
-                onClick={() => setAuthMethod('none')}
-              >
-                Vault/Profile Only
-              </button>
-            </div>
-
-            {authMethod === 'key' && (
-              <div className="auth-form">
-                <div className="auth-actions-row">
-                  <button
-                    type="button"
-                    onClick={() => keyFileInputRef.current?.click()}
-                  >
-                    Upload key file
-                  </button>
-                  {authPrivateKeyFilename && <span className="hint">{authPrivateKeyFilename}</span>}
-                </div>
-                <input
-                  ref={keyFileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pem,.key,.ppk,.txt,*/*"
-                  onChange={(event) => { void handleAuthKeyFileSelected(event) }}
-                />
-                <textarea
-                  value={authPrivateKey}
-                  onChange={(event) => setAuthPrivateKey(event.target.value)}
-                  placeholder="Paste private key here"
-                  className="auth-textarea"
-                />
-                <input
-                  value={authKeyPassphrase}
-                  onChange={(event) => setAuthKeyPassphrase(event.target.value)}
-                  type="password"
-                  placeholder="Key passphrase (optional)"
-                />
-              </div>
-            )}
-
-            {authMethod === 'password' && (
-              <div className="auth-form">
-                <input
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  type="password"
-                  placeholder="SSH password"
-                />
-              </div>
-            )}
-
-            {isHostAlreadySaved ? (
-              <p className="hint save-host-box">✓ Host already saved in sidebar</p>
-            ) : (
-              <div className="save-host-box">
-                <label className="save-host-row">
-                  <input
-                    type="checkbox"
-                    checked={saveHostEnabled}
-                    onChange={(event) => setSaveHostEnabled(event.target.checked)}
-                  />
-                  <span>Save host after connect</span>
-                </label>
-
-                {saveHostEnabled && (
-                  <>
-                    <input
-                      value={saveHostLabel}
-                      onChange={(event) => setSaveHostLabel(event.target.value)}
-                      placeholder="Host label (e.g. Dokploy Prod)"
-                    />
-                    <p className="hint">
-                      {vaultToken
-                        ? 'Credentials will be encrypted in vault when provided.'
-                        : 'No vault session token — host metadata will be saved but credentials cannot be stored. Re-lock and unlock the vault to enable credential storage.'}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button type="button" onClick={() => setShowSessionDialog(false)}>Cancel</button>
-              <button
-                type="button"
-                className="btn-emerald"
-                onClick={() => { void handleConnectWithAuth() }}
-                disabled={busy}
-              >
-                Connect
-              </button>
-            </div>
-          </div>
-        </div>
+        <SessionDialog
+          sessionCommand={sessionCommand}
+          setSessionCommand={setSessionCommand}
+          parsedCommand={parsedCommand}
+          authMethod={authMethod}
+          setAuthMethod={setAuthMethod}
+          authPassword={authPassword}
+          setAuthPassword={setAuthPassword}
+          authPrivateKey={authPrivateKey}
+          setAuthPrivateKey={setAuthPrivateKey}
+          authPrivateKeyFilename={authPrivateKeyFilename}
+          authKeyPassphrase={authKeyPassphrase}
+          setAuthKeyPassphrase={setAuthKeyPassphrase}
+          saveHostEnabled={saveHostEnabled}
+          setSaveHostEnabled={setSaveHostEnabled}
+          saveHostLabel={saveHostLabel}
+          setSaveHostLabel={setSaveHostLabel}
+          isHostAlreadySaved={isHostAlreadySaved}
+          vaultToken={vaultToken}
+          busy={busy}
+          keyFileInputRef={keyFileInputRef}
+          onKeyFileSelected={(event) => { void handleAuthKeyFileSelected(event) }}
+          onConnect={() => { void handleConnectWithAuth() }}
+          onCancel={() => setShowSessionDialog(false)}
+        />
       )}
     </main>
   )
