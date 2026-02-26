@@ -69,7 +69,18 @@ function closeServer(server: net.Server): Promise<void> {
 }
 
 function isLoopback(bindHost: string): boolean {
-  return bindHost === "127.0.0.1";
+  return bindHost === "127.0.0.1" || bindHost === "localhost" || bindHost === "::1";
+}
+
+function normalizeLoopbackHost(bindHost: string): string {
+  if (bindHost === "localhost" || bindHost === "::1") {
+    return "127.0.0.1";
+  }
+  return bindHost;
+}
+
+function isLoopbackAddress(ip: string): boolean {
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1" || ip === "localhost";
 }
 
 function getBindAddress(server: net.Server): string {
@@ -132,8 +143,10 @@ export class SshService {
 
   private async setupLocalForward(session: Session, forward: LocalForward): Promise<void> {
     if (!isLoopback(forward.bindHost)) {
-      throw new Error(`Local forward bind host must be 127.0.0.1, got ${forward.bindHost}`);
+      throw new Error(`Local forward bind host must be loopback (127.0.0.1/localhost/::1), got ${forward.bindHost}`);
     }
+
+    const bindHost = normalizeLoopbackHost(forward.bindHost);
 
     const server = net.createServer((socket) => {
       session.conn.forwardOut(
@@ -155,7 +168,7 @@ export class SshService {
 
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(forward.bindPort, forward.bindHost, () => resolve());
+      server.listen(forward.bindPort, bindHost, () => resolve());
     });
 
     session.localServers.push(server);
@@ -168,8 +181,14 @@ export class SshService {
   }
 
   private async setupRemoteForward(session: Session, forward: RemoteForward): Promise<void> {
+    if (!isLoopback(forward.bindHost)) {
+      throw new Error(`Remote forward bind host must be loopback (127.0.0.1/localhost/::1), got ${forward.bindHost}`);
+    }
+
+    const bindHost = normalizeLoopbackHost(forward.bindHost);
+
     await new Promise<void>((resolve, reject) => {
-      session.conn.forwardIn(forward.bindHost, forward.bindPort, (error?: Error) => {
+      session.conn.forwardIn(bindHost, forward.bindPort, (error?: Error) => {
         if (error) {
           reject(error);
           return;
@@ -178,19 +197,26 @@ export class SshService {
       });
     });
 
-    session.remoteMappings.push(forward);
+    const normalizedForward: RemoteForward = {
+      ...forward,
+      bindHost,
+    };
+
+    session.remoteMappings.push(normalizedForward);
     this.sendAll(session, {
       type: "forward",
       mode: "R",
-      bind: `${forward.bindHost}:${forward.bindPort}`,
-      target: `${forward.targetHost}:${forward.targetPort}`,
+      bind: `${normalizedForward.bindHost}:${normalizedForward.bindPort}`,
+      target: `${normalizedForward.targetHost}:${normalizedForward.targetPort}`,
     });
   }
 
   private async setupDynamicForward(session: Session, forward: DynamicForward): Promise<void> {
     if (!isLoopback(forward.bindHost)) {
-      throw new Error(`Dynamic forward bind host must be 127.0.0.1, got ${forward.bindHost}`);
+      throw new Error(`Dynamic forward bind host must be loopback (127.0.0.1/localhost/::1), got ${forward.bindHost}`);
     }
+
+    const bindHost = normalizeLoopbackHost(forward.bindHost);
 
     const socksServer = socksv5.createServer((info, accept, deny) => {
       session.conn.forwardOut(info.srcAddr, info.srcPort, info.dstAddr, info.dstPort, (error: Error | undefined, stream: NodeJS.ReadWriteStream) => {
@@ -214,7 +240,7 @@ export class SshService {
 
     await new Promise<void>((resolve, reject) => {
       socksServer.once("error", reject);
-      socksServer.listen(forward.bindPort, forward.bindHost, () => resolve());
+      socksServer.listen(forward.bindPort, bindHost, () => resolve());
     });
 
     session.dynamicServers.push(socksServer);
@@ -232,7 +258,11 @@ export class SshService {
           return false;
         }
 
-        return candidate.bindHost === details.destIP || candidate.bindHost === "0.0.0.0";
+        if (candidate.bindHost === details.destIP) {
+          return true;
+        }
+
+        return isLoopback(candidate.bindHost) && isLoopbackAddress(details.destIP);
       });
 
       if (!mapping) {
