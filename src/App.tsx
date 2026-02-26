@@ -1219,8 +1219,8 @@ function App() {
 
           <nav className="hosts-nav">
             {savedHosts.map((host) => {
-              const portSuffix = host.port && host.port !== 22 ? ` -p ${host.port}` : ''
-              const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${portSuffix}`
+              const resolvedPort = host.port ?? 22
+              const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname} -p ${resolvedPort}`
               return (
                 <div key={host.id} className="host-nav-item">
                   <button
