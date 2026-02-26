@@ -453,7 +453,29 @@ function App() {
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
   const vaultInitialized = Boolean(vaultStatus?.initialized)
   const vaultUnlocked = Boolean(vaultStatus?.unlocked)
-  const showVaultLockScreen = !vaultUnlocked
+  // Always require a local vault token — if the server session is still alive from a prior
+  // page load, vaultStatus.unlocked can be true but vaultToken (React state) is null, which
+  // means credentials would be silently dropped.  Force the user through the unlock form to
+  // obtain a fresh token whenever we don't have one.
+  const showVaultLockScreen = vaultStatus !== null && !vaultToken
+
+  // True when the parsed SSH host+user is already present in the saved-hosts list.
+  const isHostAlreadySaved = useMemo(() => {
+    if (!parsedCommand.isSsh || !parsedCommand.host) return false
+    return savedHosts.some(
+      (h) =>
+        h.hostname === parsedCommand.host &&
+        (!parsedCommand.user || h.username === parsedCommand.user),
+    )
+  }, [parsedCommand, savedHosts])
+
+  // When the parsed command resolves to a host that is already saved, clear the save flag
+  // so that a stale checked-state cannot trigger a duplicate save on connect.
+  useEffect(() => {
+    if (isHostAlreadySaved) {
+      setSaveHostEnabled(false)
+    }
+  }, [isHostAlreadySaved])
 
   const refreshSavedHosts = useCallback(async () => {
     try {
@@ -741,8 +763,22 @@ function App() {
       return
     }
 
-    const vaultReady = Boolean(vaultToken)
-    const credentialsForSave = vaultReady ? credentials : undefined
+    // Guard: never save a host that is already in the sidebar (stale saveHostEnabled).
+    const alreadySaved = savedHosts.some(
+      (h) => h.hostname === parsed.host && (!parsed.user || h.username === parsed.user),
+    )
+    if (alreadySaved) {
+      setStatusLine(`Connected. Host ${parsed.user}@${parsed.host} is already saved.`)
+      return
+    }
+
+    if (!vaultToken && credentials) {
+      setStatusLine(
+        `Connected. Warning: vault session token unavailable — host saved without credentials. Re-lock and unlock vault, then update credentials via the saved host.`,
+      )
+    }
+
+    const credentialsForSave = vaultToken ? credentials : undefined
 
     try {
       await apiClient.createSavedHost({
@@ -750,13 +786,15 @@ function App() {
         host: parsed.host,
         port: parsed.port ?? 22,
         username: parsed.user,
-        vaultToken: vaultReady ? vaultToken ?? undefined : undefined,
+        vaultToken: vaultToken ?? undefined,
         credentials: credentialsForSave,
       })
       await refreshSavedHosts()
-      setStatusLine(vaultReady
-        ? `Connected and saved host ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}.`
-        : `Connected and saved host ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}. (Credentials not stored: vault token unavailable)`)
+      if (credentialsForSave) {
+        setStatusLine(`Connected and saved host with credentials: ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}.`)
+      } else {
+        setStatusLine(`Connected and saved host: ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}. Credentials were not stored (vault token unavailable).`)
+      }
     } catch (error) {
       if (error instanceof ApiError) {
         setStatusLine(`Connected, but failed to save host: ${error.message}`)
@@ -772,6 +810,7 @@ function App() {
     authPrivateKey,
     createSession,
     refreshSavedHosts,
+    savedHosts,
     saveHostEnabled,
     saveHostLabel,
     sessionCommand,
@@ -928,11 +967,19 @@ function App() {
       {showVaultLockScreen && (
         <div className="modal-backdrop vault-lock-overlay" onClick={(event) => event.stopPropagation()}>
           <div className="modal-card glass vault-lock-card" onClick={(event) => event.stopPropagation()}>
-            <h2>{vaultInitialized ? 'Unlock Vault' : 'Initialize Vault'}</h2>
+            <h2>
+              {!vaultInitialized
+                ? 'Initialize Vault'
+                : !vaultUnlocked
+                  ? 'Unlock Vault'
+                  : 'Vault Session Required'}
+            </h2>
             <p className="hint">
-              {vaultInitialized
-                ? 'Vault is locked. Enter your master passphrase to continue.'
-                : 'Create a master passphrase to enable SSH credentials storage.'}
+              {!vaultInitialized
+                ? 'Create a master passphrase to enable SSH credentials storage.'
+                : !vaultUnlocked
+                  ? 'Vault is locked. Enter your master passphrase to continue.'
+                  : 'Vault is active but no session token exists for this page load. Re-enter your passphrase to get a token and enable credential storage.'}
             </p>
 
             <input
@@ -959,7 +1006,7 @@ function App() {
                   onClick={() => { void handleVaultUnlock() }}
                   disabled={busy}
                 >
-                  Unlock Vault
+                  {vaultUnlocked ? 'Get Session Token' : 'Unlock Vault'}
                 </button>
               )}
             </div>
@@ -1070,31 +1117,35 @@ function App() {
               </div>
             )}
 
-            <div className="save-host-box">
-              <label className="save-host-row">
-                <input
-                  type="checkbox"
-                  checked={saveHostEnabled}
-                  onChange={(event) => setSaveHostEnabled(event.target.checked)}
-                />
-                <span>Save host after connect</span>
-              </label>
-
-              {saveHostEnabled && (
-                <>
+            {isHostAlreadySaved ? (
+              <p className="hint save-host-box">✓ Host already saved in sidebar</p>
+            ) : (
+              <div className="save-host-box">
+                <label className="save-host-row">
                   <input
-                    value={saveHostLabel}
-                    onChange={(event) => setSaveHostLabel(event.target.value)}
-                    placeholder="Host label (e.g. Dokploy Prod)"
+                    type="checkbox"
+                    checked={saveHostEnabled}
+                    onChange={(event) => setSaveHostEnabled(event.target.checked)}
                   />
-                  <p className="hint">
-                    {vaultToken
-                      ? 'Credentials will be encrypted in vault when provided.'
-                      : 'Host will be saved now. Unlocking vault enables encrypted credential storage.'}
-                  </p>
-                </>
-              )}
-            </div>
+                  <span>Save host after connect</span>
+                </label>
+
+                {saveHostEnabled && (
+                  <>
+                    <input
+                      value={saveHostLabel}
+                      onChange={(event) => setSaveHostLabel(event.target.value)}
+                      placeholder="Host label (e.g. Dokploy Prod)"
+                    />
+                    <p className="hint">
+                      {vaultToken
+                        ? 'Credentials will be encrypted in vault when provided.'
+                        : 'No vault session token — host metadata will be saved but credentials cannot be stored. Re-lock and unlock the vault to enable credential storage.'}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="modal-actions">
               <button type="button" onClick={() => setShowSessionDialog(false)}>Cancel</button>
