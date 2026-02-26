@@ -294,6 +294,29 @@ function TerminalSession({
     return () => window.clearTimeout(timer)
   }, [isActive])
 
+  useEffect(() => {
+    if (!isActive) return
+
+    const handleViewportResize = () => {
+      const fitAddon = fitAddonRef.current
+      const term = terminalRef.current
+      if (!fitAddon || !term) return
+
+      fitAddon.fit()
+      void onResize(session.id, term.cols, term.rows)
+    }
+
+    const debounced = window.setTimeout(() => handleViewportResize(), 60)
+    window.addEventListener('resize', handleViewportResize)
+    window.visualViewport?.addEventListener('resize', handleViewportResize)
+
+    return () => {
+      window.clearTimeout(debounced)
+      window.removeEventListener('resize', handleViewportResize)
+      window.visualViewport?.removeEventListener('resize', handleViewportResize)
+    }
+  }, [isActive, onResize, session.id])
+
   const handleControlPress = useCallback(async (control: MobileControl) => {
     if (control.action === 'ctrl') {
       setCtrlArmed((previous) => !previous)
@@ -414,7 +437,7 @@ function App() {
   const [recoveryPhrase, setRecoveryPhrase] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionCommand, setSessionCommand] = useState('ssh root@34.186.124.156 -p 22')
@@ -423,6 +446,8 @@ function App() {
   const [authPrivateKey, setAuthPrivateKey] = useState('')
   const [authPrivateKeyFilename, setAuthPrivateKeyFilename] = useState('')
   const [authKeyPassphrase, setAuthKeyPassphrase] = useState('')
+  const [saveHostEnabled, setSaveHostEnabled] = useState(false)
+  const [saveHostLabel, setSaveHostLabel] = useState('')
   const keyFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
@@ -519,10 +544,10 @@ function App() {
     rawCommand: string,
     titleOverride?: string,
     credentials?: SessionCredentials,
-  ) => {
+  ): Promise<boolean> => {
     if (!rawCommand.trim()) {
       setStatusLine('Command is required.')
-      return
+      return false
     }
 
     setBusy(true)
@@ -544,12 +569,14 @@ function App() {
       setSessions((previous) => [nextTab, ...previous])
       setActiveSessionId(nextTab.id)
       setStatusLine(`Connected: ${nextTab.title}`)
+      return true
     } catch (error) {
       if (error instanceof ApiError) {
         setStatusLine(`Failed to create session: ${error.message}`)
       } else {
         setStatusLine('Failed to create session.')
       }
+      return false
     } finally {
       setBusy(false)
     }
@@ -644,9 +671,14 @@ function App() {
       return
     }
 
+    const command = prefillCommand ?? sessionCommand
     if (prefillCommand) {
       setSessionCommand(prefillCommand)
     }
+
+    const parsed = parseSshCommand(command)
+    setSaveHostLabel(parsed.host ? (parsed.user ? `${parsed.user}@${parsed.host}` : parsed.host) : 'My Host')
+    setSaveHostEnabled(false)
 
     setAuthMethod(prefillCommand ? 'none' : 'key')
     setAuthPassword('')
@@ -654,7 +686,7 @@ function App() {
     setAuthPrivateKeyFilename('')
     setAuthKeyPassphrase('')
     setShowSessionDialog(true)
-  }, [vaultUnlocked])
+  }, [sessionCommand, vaultUnlocked])
 
   const handleAuthKeyFileSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -663,6 +695,7 @@ function App() {
     const text = await file.text()
     setAuthPrivateKey(text)
     setAuthPrivateKeyFilename(file.name)
+    setSaveHostEnabled(true)
     event.target.value = ''
   }, [])
 
@@ -695,18 +728,57 @@ function App() {
     }
 
     setShowSessionDialog(false)
-    await createSession(command, undefined, credentials)
+    const connected = await createSession(command, undefined, credentials)
+
+    if (!connected || !saveHostEnabled) {
+      return
+    }
+
+    const parsed = parseSshCommand(command)
+    if (!parsed.isSsh || !parsed.host || !parsed.user) {
+      setStatusLine('Connected, but command could not be parsed for host save.')
+      return
+    }
+
+    const vaultReady = Boolean(vaultToken)
+    const credentialsForSave = vaultReady ? credentials : undefined
+
+    try {
+      await apiClient.createSavedHost({
+        name: saveHostLabel.trim() || `${parsed.user}@${parsed.host}`,
+        host: parsed.host,
+        port: parsed.port ?? 22,
+        username: parsed.user,
+        vaultToken: vaultReady ? vaultToken ?? undefined : undefined,
+        credentials: credentialsForSave,
+      })
+      await refreshSavedHosts()
+      setStatusLine(vaultReady
+        ? `Connected and saved host ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}.`
+        : `Connected and saved host ${saveHostLabel.trim() || `${parsed.user}@${parsed.host}`}. (Credentials not stored: vault token unavailable)`)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setStatusLine(`Connected, but failed to save host: ${error.message}`)
+      } else {
+        setStatusLine('Connected, but failed to save host.')
+      }
+    }
   }, [
+    apiClient,
     authKeyPassphrase,
     authMethod,
     authPassword,
     authPrivateKey,
     createSession,
+    refreshSavedHosts,
+    saveHostEnabled,
+    saveHostLabel,
     sessionCommand,
+    vaultToken,
   ])
 
   return (
-    <main className={`workbench-shell ${fullscreen ? 'workbench-fullscreen' : ''}`}>
+    <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
         <div className="sidebar-top">
           <div>
@@ -774,10 +846,11 @@ function App() {
         <div className="tabs">
           <button
             type="button"
-            className="tab"
-            onClick={() => setFullscreen((current) => !current)}
+            className="tab icon-toggle"
+            onClick={() => setSidebarOpen((current) => !current)}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
           >
-            {fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            {sidebarOpen ? '▤' : '☰'}
           </button>
 
           {sessions.map((session) => (
@@ -975,6 +1048,32 @@ function App() {
                 />
               </div>
             )}
+
+            <div className="save-host-box">
+              <label className="save-host-row">
+                <input
+                  type="checkbox"
+                  checked={saveHostEnabled}
+                  onChange={(event) => setSaveHostEnabled(event.target.checked)}
+                />
+                <span>Save host after connect</span>
+              </label>
+
+              {saveHostEnabled && (
+                <>
+                  <input
+                    value={saveHostLabel}
+                    onChange={(event) => setSaveHostLabel(event.target.value)}
+                    placeholder="Host label (e.g. Dokploy Prod)"
+                  />
+                  <p className="hint">
+                    {vaultToken
+                      ? 'Credentials will be encrypted in vault when provided.'
+                      : 'Host will be saved now. Unlocking vault enables encrypted credential storage.'}
+                  </p>
+                </>
+              )}
+            </div>
 
             <div className="modal-actions">
               <button type="button" onClick={() => setShowSessionDialog(false)}>Cancel</button>
