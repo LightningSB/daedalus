@@ -528,6 +528,14 @@ body {
   font-size: 1rem;
 }
 
+.mobile-close-sidebar {
+  display: none;
+}
+
+.sidebar-scrim {
+  display: none;
+}
+
 @media (max-width: 1079px) {
   .workbench-shell.sidebar-open {
     grid-template-columns: 1fr;
@@ -594,10 +602,6 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1rem;
-}
-
-.mobile-close-sidebar {
-  display: none;
 }
 
 .new-session-btn {
@@ -669,10 +673,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sidebar-scrim {
-  display: none;
 }
 
 .vault-lock-overlay {
