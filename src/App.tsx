@@ -35,7 +35,7 @@ type ParsedSshCommand = {
 type MobileControl = {
   label: string
   sequence?: string
-  action?: 'ctrl' | 'paste'
+  action?: 'ctrl' | 'paste' | 'hideKeyboard' | 'fontUp' | 'fontDown' | 'fontReset'
 }
 
 const MOBILE_CONTROLS: MobileControl[] = [
@@ -52,7 +52,14 @@ const MOBILE_CONTROLS: MobileControl[] = [
   { label: 'End', sequence: '\u001b[F' },
   { label: 'Ctrl+C', sequence: '\u0003' },
   { label: 'Ctrl+D', sequence: '\u0004' },
+  { label: 'Ctrl+L', sequence: '\u000c' },
+  { label: 'Ctrl+U', sequence: '\u0015' },
+  { label: 'Ctrl+Z', sequence: '\u001a' },
+  { label: 'A−', action: 'fontDown' },
+  { label: 'A+', action: 'fontUp' },
+  { label: 'A=', action: 'fontReset' },
   { label: 'Paste', action: 'paste' },
+  { label: 'Hide KB', action: 'hideKeyboard' },
 ]
 
 function parseSshCommand(raw: string): ParsedSshCommand {
@@ -429,6 +436,16 @@ function TerminalSession({
   const socketRef = useRef<WebSocket | null>(null)
   const ctrlArmedRef = useRef(false)
   const [ctrlArmed, setCtrlArmed] = useState(false)
+  const [fontSize, setFontSize] = useState<number>(() => {
+    try {
+      const stored = window.localStorage.getItem('daedalus:terminalFontSize')
+      const parsed = stored ? Number.parseInt(stored, 10) : NaN
+      if (!Number.isNaN(parsed) && parsed >= 10 && parsed <= 26) return parsed
+    } catch {
+      // ignore storage errors
+    }
+    return 14
+  })
 
   useEffect(() => {
     ctrlArmedRef.current = ctrlArmed
@@ -446,10 +463,10 @@ function TerminalSession({
   useEffect(() => {
     const terminal = new Terminal({
       cursorBlink: true,
-      convertEol: true,
+      convertEol: false,
       allowProposedApi: true,
       fontFamily: '"Fira Code", "SFMono-Regular", Consolas, monospace',
-      fontSize: 14,
+      fontSize,
       lineHeight: 1.22,
       scrollback: 8000,
       theme: {
@@ -557,6 +574,20 @@ function TerminalSession({
         return false
       }
 
+      // Terminal zoom controls
+      if (event.ctrlKey && (event.key === '=' || event.key === '+')) {
+        setFontSize((previous) => Math.min(26, previous + 1))
+        return false
+      }
+      if (event.ctrlKey && event.key === '-') {
+        setFontSize((previous) => Math.max(10, previous - 1))
+        return false
+      }
+      if (event.ctrlKey && event.key === '0') {
+        setFontSize(14)
+        return false
+      }
+
       if (ctrlArmedRef.current && event.key.length === 1) {
         const code = event.key.toUpperCase().charCodeAt(0) - 64
         if (code >= 1 && code <= 31) {
@@ -603,25 +634,79 @@ function TerminalSession({
       const term = terminalRef.current
       if (!fitAddon || !term) return
 
+      // Multi-pass fit improves reliability on mobile when browser UI / keyboard animates.
       fitAddon.fit()
-      void onResize(session.id, term.cols, term.rows)
+      term.refresh(0, Math.max(0, term.rows - 1))
+      window.setTimeout(() => {
+        fitAddon.fit()
+        term.refresh(0, Math.max(0, term.rows - 1))
+        void onResize(session.id, term.cols, term.rows)
+      }, 50)
     }
 
     const debounced = window.setTimeout(() => handleViewportResize(), 60)
     window.addEventListener('resize', handleViewportResize)
+    window.addEventListener('orientationchange', handleViewportResize)
     window.visualViewport?.addEventListener('resize', handleViewportResize)
+    window.visualViewport?.addEventListener('scroll', handleViewportResize)
 
     return () => {
       window.clearTimeout(debounced)
       window.removeEventListener('resize', handleViewportResize)
+      window.removeEventListener('orientationchange', handleViewportResize)
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
+      window.visualViewport?.removeEventListener('scroll', handleViewportResize)
     }
   }, [isActive, onResize, session.id])
+
+  useEffect(() => {
+    const term = terminalRef.current
+    const fitAddon = fitAddonRef.current
+    if (!term || !fitAddon) return
+
+    const next = Math.max(10, Math.min(26, fontSize))
+    term.options.fontSize = next
+    fitAddon.fit()
+    term.refresh(0, Math.max(0, term.rows - 1))
+    void onResize(session.id, term.cols, term.rows)
+
+    try {
+      window.localStorage.setItem('daedalus:terminalFontSize', String(next))
+    } catch {
+      // ignore storage errors
+    }
+  }, [fontSize, onResize, session.id])
 
   const handleControlPress = useCallback(async (control: MobileControl) => {
     if (control.action === 'ctrl') {
       setCtrlArmed((previous) => !previous)
       terminalRef.current?.focus()
+      return
+    }
+
+    if (control.action === 'fontUp') {
+      setFontSize((previous) => Math.min(26, previous + 1))
+      terminalRef.current?.focus()
+      return
+    }
+
+    if (control.action === 'fontDown') {
+      setFontSize((previous) => Math.max(10, previous - 1))
+      terminalRef.current?.focus()
+      return
+    }
+
+    if (control.action === 'fontReset') {
+      setFontSize(14)
+      terminalRef.current?.focus()
+      return
+    }
+
+    if (control.action === 'hideKeyboard') {
+      setCtrlArmed(false)
+      const active = document.activeElement as HTMLElement | null
+      active?.blur()
+      terminalRef.current?.blur()
       return
     }
 

@@ -440,11 +440,19 @@ body {
 .terminal-canvas {
   min-height: 0;
   padding: 0.3rem;
+  overflow: hidden;
 }
 
 .terminal-canvas .xterm {
   height: 100%;
   width: 100%;
+  max-width: 100%;
+}
+
+.terminal-canvas .xterm-screen,
+.terminal-canvas .xterm-viewport {
+  width: 100% !important;
+  max-width: 100%;
 }
 
 .mobile-controls {
@@ -454,6 +462,11 @@ body {
   padding: 0.45rem;
   border-top: 1px solid var(--color-dark-border);
   background: rgba(12, 16, 24, 0.84);
+  scrollbar-width: none;
+}
+
+.mobile-controls::-webkit-scrollbar {
+  display: none;
 }
 
 .control-btn {
@@ -464,6 +477,7 @@ body {
   padding: 0.4rem 0.5rem;
   font-size: 0.74rem;
   white-space: nowrap;
+  min-height: 2rem;
 }
 
 .control-btn.armed {
@@ -785,6 +799,21 @@ body {
   .workbench-main.main-sidebar-open {
     pointer-events: none;
     touch-action: none;
+  }
+
+  .workbench-main {
+    min-width: 0;
+  }
+
+  .terminal-area,
+  .terminal-session,
+  .terminal-canvas {
+    min-width: 0;
+  }
+
+  .mobile-controls {
+    padding-bottom: calc(0.45rem + env(safe-area-inset-bottom));
+    background: rgba(10, 14, 22, 0.94);
   }
 }
 
