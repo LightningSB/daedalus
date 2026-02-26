@@ -339,17 +339,70 @@ function TerminalSession({
   )
 }
 
+function extractTelegramUserIdFromContext(): string | null {
+  const fromQuery = new URLSearchParams(window.location.search).get('tgUserId')
+  if (fromQuery) return fromQuery
+
+  const tg = (window as any).Telegram?.WebApp
+  const fromUnsafeUser = tg?.initDataUnsafe?.user?.id
+  if (fromUnsafeUser) return String(fromUnsafeUser)
+
+  const tryParseWebAppData = (raw: string | null): string | null => {
+    if (!raw) return null
+
+    try {
+      const params = new URLSearchParams(raw)
+      const userRaw = params.get('user')
+      if (userRaw) {
+        const parsed = JSON.parse(decodeURIComponent(userRaw))
+        if (parsed?.id) return String(parsed.id)
+      }
+      const userId = params.get('user_id')
+      if (userId) return String(userId)
+    } catch {
+      // ignore parse failures
+    }
+
+    return null
+  }
+
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const fromHash = tryParseWebAppData(hashParams.get('tgWebAppData'))
+  if (fromHash) return fromHash
+
+  const fromSearch = tryParseWebAppData(new URLSearchParams(window.location.search).get('tgWebAppData'))
+  if (fromSearch) return fromSearch
+
+  try {
+    const stored = window.localStorage.getItem('daedalus:lastUserId')
+    if (stored) return stored
+  } catch {
+    // ignore storage errors
+  }
+
+  return null
+}
+
 function App() {
   const { user } = useTelegram()
 
   const derivedUserId = useMemo(() => {
-    const queryValue = new URLSearchParams(window.location.search).get('tgUserId')
-    if (queryValue) return queryValue
+    const fromContext = extractTelegramUserIdFromContext()
+    if (fromContext) return fromContext
     if (user?.id) return String(user.id)
     return 'local-dev'
   }, [user])
 
   const apiClient = useMemo(() => createApiClient(derivedUserId), [derivedUserId])
+
+  useEffect(() => {
+    if (!derivedUserId || derivedUserId === 'local-dev') return
+    try {
+      window.localStorage.setItem('daedalus:lastUserId', derivedUserId)
+    } catch {
+      // ignore storage errors
+    }
+  }, [derivedUserId])
 
   const [sessions, setSessions] = useState<SessionTab[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -598,6 +651,9 @@ function App() {
           <div>
             <h1>Daedalus SSH</h1>
             <p className="hint">User: {derivedUserId}</p>
+            {derivedUserId === 'local-dev' && (
+              <p className="error">Telegram user not detected; vault profile may be wrong.</p>
+            )}
           </div>
           <button
             type="button"
