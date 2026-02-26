@@ -804,9 +804,10 @@ function App() {
             </button>
             <button
               type="button"
-              className="vault-indicator mobile-close-sidebar"
+              className="vault-indicator sidebar-close-btn"
               onClick={() => setSidebarOpen(false)}
               title="Close menu"
+              aria-label="Close sidebar"
             >
               ✕
             </button>
@@ -862,7 +863,7 @@ function App() {
         />
       )}
 
-      <section className="workbench-main">
+      <section className={`workbench-main${sidebarOpen ? ' main-sidebar-open' : ''}`}>
         <div className="tabs">
           <button
             type="button"

@@ -528,7 +528,8 @@ body {
   font-size: 1rem;
 }
 
-.mobile-close-sidebar {
+/* Hidden on desktop; shown only on mobile when sidebar is open */
+.sidebar-close-btn {
   display: none;
 }
 
@@ -541,25 +542,25 @@ body {
     grid-template-columns: 1fr;
   }
 
+  /* Sidebar: fixed overlay, highest z-index */
   .workbench-shell.sidebar-open .workbench-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
     width: min(86vw, 340px);
-    z-index: 45;
+    z-index: 50;
     border-right: 1px solid var(--color-dark-border);
     border-bottom: 0;
     background: linear-gradient(180deg, rgba(9, 14, 20, 0.95), rgba(9, 14, 20, 0.82));
     box-shadow: 0 0 0 1px rgba(16, 255, 180, 0.1), 18px 0 40px rgba(0, 0, 0, 0.45);
+    overflow-y: auto;
   }
 
-  .mobile-close-sidebar {
+  /* Close button: visible in the sidebar header flex row — no absolute positioning */
+  .sidebar-close-btn {
     display: inline-flex;
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 2;
   }
 
+  /* Scrim: sits above the terminal/main but below the sidebar */
   .sidebar-scrim {
     display: block;
     position: fixed;
@@ -569,6 +570,15 @@ body {
     border: 0;
     margin: 0;
     padding: 0;
+    /* Absorb all touch and pointer events — nothing passes through to the terminal */
+    touch-action: none;
+    pointer-events: all;
+    cursor: default;
+  }
+
+  /* Disable all interaction with the terminal/main area while sidebar is open */
+  .workbench-main.main-sidebar-open {
+    pointer-events: none;
     touch-action: none;
   }
 }
