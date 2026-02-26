@@ -1,39 +1,12 @@
-# Build stage
-FROM golang:1.21-alpine AS builder
+FROM oven/bun:1.3.10-alpine
 
 WORKDIR /app
 
-# Install git and ca-certificates
-RUN apk add --no-cache git ca-certificates
+COPY package.json tsconfig.json ./
+RUN bun install --frozen-lockfile || bun install
 
-# Copy go mod file
-COPY go.mod ./
+COPY src ./src
 
-# Download dependencies and generate go.sum
-RUN go mod download
-
-# Copy source code
-COPY . .
-
-# Tidy modules
-RUN go mod tidy
-
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o daedalus-proxy .
-
-# Runtime stage
-FROM alpine:latest
-
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
-
-# Copy the binary from builder
-COPY --from=builder /app/daedalus-proxy .
-
-# Expose port
 EXPOSE 8080
 
-# Run the binary
-CMD ["./daedalus-proxy"]
+CMD ["bun", "run", "src/index.ts"]
