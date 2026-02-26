@@ -757,6 +757,7 @@ function App() {
   const [authKeyPassphrase, setAuthKeyPassphrase] = useState('')
   const [saveHostEnabled, setSaveHostEnabled] = useState(false)
   const [saveHostLabel, setSaveHostLabel] = useState('')
+  const [selectedHostLaunch, setSelectedHostLaunch] = useState<{ id: string; command: string } | null>(null)
   const keyFileInputRef = useRef<HTMLInputElement>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
@@ -902,6 +903,7 @@ function App() {
     rawCommand: string,
     titleOverride?: string,
     credentials?: SessionCredentials,
+    hostId?: string,
   ): Promise<boolean> => {
     if (!rawCommand.trim()) {
       setStatusLine('Command is required.')
@@ -914,6 +916,7 @@ function App() {
     try {
       const created: CreateSshSessionResponse = await apiClient.createSshSession({
         rawCommand,
+        hostId,
         vaultToken: vaultToken ?? undefined,
         ...credentials,
       })
@@ -1023,10 +1026,16 @@ function App() {
     }
   }, [apiClient, refreshVaultStatus, vaultToken])
 
-  const handleOpenSessionClick = useCallback((prefillCommand?: string) => {
+  const handleOpenSessionClick = useCallback((prefillCommand?: string, hostId?: string) => {
     const command = prefillCommand ?? sessionCommand
     if (prefillCommand) {
       setSessionCommand(prefillCommand)
+    }
+
+    if (prefillCommand && hostId) {
+      setSelectedHostLaunch({ id: hostId, command: prefillCommand })
+    } else {
+      setSelectedHostLaunch(null)
     }
 
     const parsed = parseSshCommand(command)
@@ -1081,8 +1090,13 @@ function App() {
       }
     }
 
+    const selectedHostId =
+      selectedHostLaunch && selectedHostLaunch.command.trim() === command
+        ? selectedHostLaunch.id
+        : undefined
+
     setShowSessionDialog(false)
-    const connected = await createSession(command, undefined, credentials)
+    const connected = await createSession(command, undefined, credentials, selectedHostId)
 
     if (!connected || !saveHostEnabled) {
       return
@@ -1144,6 +1158,7 @@ function App() {
     savedHosts,
     saveHostEnabled,
     saveHostLabel,
+    selectedHostLaunch,
     sessionCommand,
     vaultToken,
   ])
@@ -1226,7 +1241,7 @@ function App() {
                   <button
                     type="button"
                     className="host-nav-launch"
-                    onClick={() => handleOpenSessionClick(command)}
+                    onClick={() => handleOpenSessionClick(command, host.id)}
                   >
                     <span className="host-dot" />
                     <span className="host-meta">

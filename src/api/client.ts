@@ -30,6 +30,7 @@ export type VaultStatus = {
 
 export type CreateSshSessionRequest = {
   rawCommand: string
+  hostId?: string
   vaultToken?: string
   password?: string
   privateKey?: string
@@ -239,6 +240,7 @@ export function createApiClient(userId: string) {
         method: 'POST',
         body: {
           command: payload.rawCommand,
+          hostId: payload.hostId,
           password: payload.password,
           privateKey: payload.privateKey,
           passphrase: payload.passphrase,
