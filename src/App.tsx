@@ -462,6 +462,59 @@ function App() {
     void refreshVaultStatus()
   }, [refreshSavedHosts, refreshVaultStatus])
 
+  useEffect(() => {
+    const restore = async () => {
+      try {
+        const summaries = await apiClient.listSshSessions()
+        const connected = summaries.filter((session) => session.connected)
+
+        if (connected.length === 0) {
+          setSessions([])
+          setActiveSessionId(null)
+          return
+        }
+
+        const restoredTabs: SessionTab[] = connected.map((session) => ({
+          id: session.id,
+          title: session.username ? `${session.username}@${session.host}` : session.host,
+          websocketUrl: apiClient.getSessionWebsocketUrl(session.id),
+        }))
+
+        setSessions(restoredTabs)
+
+        let preferredId: string | null = null
+        try {
+          preferredId = window.localStorage.getItem('daedalus:activeSessionId')
+        } catch {
+          preferredId = null
+        }
+
+        const resolvedActive = preferredId && restoredTabs.some((tab) => tab.id === preferredId)
+          ? preferredId
+          : restoredTabs[0]?.id ?? null
+
+        setActiveSessionId(resolvedActive)
+
+        if (restoredTabs.length > 0) {
+          setStatusLine(`Restored ${restoredTabs.length} active session${restoredTabs.length > 1 ? 's' : ''}.`)
+        }
+      } catch {
+        // ignore restore errors; session creation still works.
+      }
+    }
+
+    void restore()
+  }, [apiClient])
+
+  useEffect(() => {
+    if (!activeSessionId) return
+    try {
+      window.localStorage.setItem('daedalus:activeSessionId', activeSessionId)
+    } catch {
+      // ignore storage errors
+    }
+  }, [activeSessionId])
+
   const createSession = useCallback(async (
     rawCommand: string,
     titleOverride?: string,
@@ -506,7 +559,15 @@ function App() {
     setSessions((previous) => {
       const remaining = previous.filter((session) => session.id !== sessionId)
       if (activeSessionId === sessionId) {
-        setActiveSessionId(remaining[0]?.id ?? null)
+        const nextActive = remaining[0]?.id ?? null
+        setActiveSessionId(nextActive)
+        if (!nextActive) {
+          try {
+            window.localStorage.removeItem('daedalus:activeSessionId')
+          } catch {
+            // ignore storage errors
+          }
+        }
       }
       return remaining
     })

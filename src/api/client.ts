@@ -55,6 +55,13 @@ export type CreateSshSessionResponse = {
   title: string
 }
 
+export type SshSessionSummary = {
+  id: string
+  host: string
+  username?: string
+  connected: boolean
+}
+
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 type RequestOptions = {
@@ -122,6 +129,10 @@ export function createApiClient(userId: string) {
   }
 
   return {
+    getSessionWebsocketUrl(sessionId: string): string {
+      return wsUrlFor(`${base}/ssh/sessions/${encodeURIComponent(sessionId)}/ws`)
+    },
+
     async getSavedHosts(): Promise<SavedHost[]> {
       const data = await requestJson<{ hosts?: unknown[] }>('/ssh/hosts')
       const hosts = Array.isArray(data.hosts) ? data.hosts : []
@@ -202,6 +213,19 @@ export function createApiClient(userId: string) {
         token,
         recoveryPhrase: nextRecoveryPhrase,
       }
+    },
+
+    async listSshSessions(): Promise<SshSessionSummary[]> {
+      const data = await requestJson<{ sessions?: Array<Record<string, unknown>> }>('/ssh/sessions')
+      const sessions = Array.isArray(data.sessions) ? data.sessions : []
+
+      return sessions.map((session) => {
+        const id = typeof session.id === 'string' ? session.id : ''
+        const host = typeof session.host === 'string' ? session.host : 'session'
+        const username = typeof session.username === 'string' ? session.username : undefined
+        const connected = Boolean(session.connected)
+        return { id, host, username, connected }
+      }).filter((session) => session.id.length > 0)
     },
 
     async createSshSession(payload: CreateSshSessionRequest): Promise<CreateSshSessionResponse> {
