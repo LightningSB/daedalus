@@ -433,6 +433,38 @@ body {
   flex-wrap: wrap;
 }
 
+.save-host-box {
+  border: 1px solid var(--color-dark-border);
+  border-radius: 0.7rem;
+  padding: 0.6rem;
+  background: rgba(10, 14, 20, 0.48);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.save-host-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.save-host-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+}
+
+.save-host-box input {
+  background: rgba(11, 18, 24, 0.7);
+  border: 1px solid var(--color-dark-border);
+  border-radius: 0.6rem;
+  color: #f5f7fb;
+  padding: 0.6rem 0.7rem;
+  outline: none;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -465,4 +497,110 @@ body {
 
 .workbench-fullscreen .workbench-sidebar {
   display: none;
+}
+
+.modern-sidebar {
+  background: linear-gradient(180deg, rgba(9, 14, 20, 0.8), rgba(9, 14, 20, 0.45));
+}
+
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.vault-indicator {
+  border: 1px solid var(--color-dark-border);
+  background: rgba(16, 24, 32, 0.75);
+  color: #f8fffd;
+  border-radius: 999px;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.new-session-btn {
+  width: 100%;
+  border-radius: 0.75rem;
+  padding: 0.72rem 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-section {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+.hosts-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 260px);
+  max-height: calc(100dvh - 260px);
+  padding-right: 0.15rem;
+}
+
+.host-nav-item {
+  border: 1px solid var(--color-dark-border);
+  background: rgba(16, 24, 32, 0.64);
+  color: #f8fffd;
+  border-radius: 0.75rem;
+  padding: 0.62rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  text-align: left;
+}
+
+.host-nav-item:hover {
+  border-color: rgba(20, 184, 166, 0.55);
+  background: rgba(20, 184, 166, 0.12);
+}
+
+.host-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  margin-top: 0.36rem;
+  background: linear-gradient(135deg, #14b8a6, #10b981);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+}
+
+.host-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.host-meta strong {
+  font-size: 0.84rem;
+}
+
+.host-meta small {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.68);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-lock-overlay {
+  z-index: 96;
+  background: rgba(4, 8, 13, 0.92);
+}
+
+.vault-lock-card {
+  width: min(560px, 100%);
+  min-height: min(420px, 82vh);
+  justify-content: center;
 }

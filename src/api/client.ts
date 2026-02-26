@@ -36,6 +36,19 @@ export type CreateSshSessionRequest = {
   passphrase?: string
 }
 
+export type CreateSavedHostRequest = {
+  name: string
+  host: string
+  port: number
+  username: string
+  vaultToken?: string
+  credentials?: {
+    password?: string
+    privateKey?: string
+    passphrase?: string
+  }
+}
+
 export type CreateSshSessionResponse = {
   sessionId: string
   websocketUrl: string
@@ -113,6 +126,20 @@ export function createApiClient(userId: string) {
       const data = await requestJson<{ hosts?: unknown[] }>('/ssh/hosts')
       const hosts = Array.isArray(data.hosts) ? data.hosts : []
       return hosts.map(normalizeSavedHost).filter((host) => host.hostname.length > 0)
+    },
+
+    async createSavedHost(payload: CreateSavedHostRequest): Promise<void> {
+      await requestJson('/ssh/hosts', {
+        method: 'POST',
+        vaultToken: payload.vaultToken,
+        body: {
+          label: payload.name,
+          host: payload.host,
+          port: payload.port,
+          username: payload.username,
+          credentials: payload.credentials,
+        },
+      })
     },
 
     async getVaultStatus(): Promise<VaultStatus> {

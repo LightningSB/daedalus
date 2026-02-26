@@ -351,7 +351,6 @@ function App() {
 
   const apiClient = useMemo(() => createApiClient(derivedUserId), [derivedUserId])
 
-  const [commandInput, setCommandInput] = useState('ssh root@34.186.124.156 -p 22')
   const [sessions, setSessions] = useState<SessionTab[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [savedHosts, setSavedHosts] = useState<SavedHost[]>([])
@@ -364,8 +363,8 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
 
-  const [showAuthModal, setShowAuthModal] = useState(false)
-  const [pendingCommand, setPendingCommand] = useState('')
+  const [showSessionDialog, setShowSessionDialog] = useState(false)
+  const [sessionCommand, setSessionCommand] = useState('ssh root@34.186.124.156 -p 22')
   const [authMethod, setAuthMethod] = useState<'key' | 'password' | 'none'>('key')
   const [authPassword, setAuthPassword] = useState('')
   const [authPrivateKey, setAuthPrivateKey] = useState('')
@@ -373,7 +372,10 @@ function App() {
   const [authKeyPassphrase, setAuthKeyPassphrase] = useState('')
   const keyFileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const parsedCommand = useMemo(() => parseSshCommand(commandInput.trim()), [commandInput])
+  const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
+  const vaultInitialized = Boolean(vaultStatus?.initialized)
+  const vaultUnlocked = Boolean(vaultStatus?.unlocked)
+  const showVaultLockScreen = !vaultUnlocked
 
   const refreshSavedHosts = useCallback(async () => {
     try {
@@ -522,21 +524,23 @@ function App() {
     }
   }, [apiClient, refreshVaultStatus, vaultToken])
 
-  const handleOpenSessionClick = useCallback(() => {
-    const trimmed = commandInput.trim()
-    if (!trimmed) {
-      setStatusLine('Command is required.')
+  const handleOpenSessionClick = useCallback((prefillCommand?: string) => {
+    if (!vaultUnlocked) {
+      setStatusLine('Unlock vault to open a new session.')
       return
     }
 
-    setPendingCommand(trimmed)
-    setAuthMethod('key')
+    if (prefillCommand) {
+      setSessionCommand(prefillCommand)
+    }
+
+    setAuthMethod(prefillCommand ? 'none' : 'key')
     setAuthPassword('')
     setAuthPrivateKey('')
     setAuthPrivateKeyFilename('')
     setAuthKeyPassphrase('')
-    setShowAuthModal(true)
-  }, [commandInput])
+    setShowSessionDialog(true)
+  }, [vaultUnlocked])
 
   const handleAuthKeyFileSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -549,8 +553,9 @@ function App() {
   }, [])
 
   const handleConnectWithAuth = useCallback(async () => {
-    if (!pendingCommand) {
-      setStatusLine('No pending command.')
+    const command = sessionCommand.trim()
+    if (!command) {
+      setStatusLine('Command is required.')
       return
     }
 
@@ -575,107 +580,76 @@ function App() {
       }
     }
 
-    setShowAuthModal(false)
-    await createSession(pendingCommand, undefined, credentials)
-  }, [authKeyPassphrase, authMethod, authPassword, authPrivateKey, createSession, pendingCommand])
+    setShowSessionDialog(false)
+    await createSession(command, undefined, credentials)
+  }, [
+    authKeyPassphrase,
+    authMethod,
+    authPassword,
+    authPrivateKey,
+    createSession,
+    sessionCommand,
+  ])
 
   return (
     <main className={`workbench-shell ${fullscreen ? 'workbench-fullscreen' : ''}`}>
-      <aside className="workbench-sidebar">
-        <h1>Daedalus SSH Workbench</h1>
-        <p className="hint">User: {derivedUserId}</p>
-
-        <div className="panel glass">
-          <h2>New Session</h2>
-          <label htmlFor="ssh-command">SSH command</label>
-          <input
-            id="ssh-command"
-            value={commandInput}
-            onChange={(event) => setCommandInput(event.target.value)}
-            placeholder="ssh user@34.186.124.156 -p 22"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
+      <aside className="workbench-sidebar modern-sidebar">
+        <div className="sidebar-top">
+          <div>
+            <h1>Daedalus SSH</h1>
+            <p className="hint">User: {derivedUserId}</p>
+          </div>
           <button
             type="button"
-            className="btn-emerald"
-            disabled={busy}
-            onClick={handleOpenSessionClick}
+            className="vault-indicator"
+            onClick={() => {
+              if (vaultUnlocked) {
+                void handleVaultLock()
+              }
+            }}
+            title={vaultUnlocked ? 'Vault unlocked (click to lock)' : 'Vault locked'}
           >
-            Open Session
+            {vaultUnlocked ? '🔓' : '🔒'}
           </button>
-          <p className="hint">
-            Parser: {parsedCommand.isSsh ? 'ssh' : 'raw'} {parsedCommand.user ?? ''}{parsedCommand.host ? `@${parsedCommand.host}` : ''}{parsedCommand.port ? ` :${parsedCommand.port}` : ''}
-          </p>
         </div>
 
-        <div className="panel glass">
+        <button
+          type="button"
+          className="btn-emerald new-session-btn"
+          disabled={busy || !vaultUnlocked}
+          onClick={() => handleOpenSessionClick()}
+        >
+          + New Session
+        </button>
+
+        <div className="sidebar-section">
           <div className="panel-header">
             <h2>Saved Hosts</h2>
-            <button type="button" onClick={() => void refreshSavedHosts()}>Refresh</button>
+            <button type="button" onClick={() => void refreshSavedHosts()}>↻</button>
           </div>
+
           {hostsError && <p className="error">{hostsError}</p>}
           {!hostsError && savedHosts.length === 0 && <p className="hint">No saved hosts yet.</p>}
-          <ul className="host-list">
+
+          <nav className="hosts-nav">
             {savedHosts.map((host) => {
               const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? ` -p ${host.port}` : ''}`
               return (
-                <li key={host.id}>
-                  <div>
+                <button
+                  key={host.id}
+                  type="button"
+                  className="host-nav-item"
+                  onClick={() => handleOpenSessionClick(command)}
+                >
+                  <span className="host-dot" />
+                  <span className="host-meta">
                     <strong>{host.name}</strong>
-                    <span>{command}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void createSession(command, host.name)
-                    }}
-                    disabled={busy}
-                  >
-                    Launch
-                  </button>
-                </li>
+                    <small>{command}</small>
+                  </span>
+                </button>
               )
             })}
-          </ul>
-        </div>
-
-        <div className="panel glass">
-          <h2>Vault</h2>
-          <p className="hint">
-            Status: {vaultStatus ? (vaultStatus.initialized ? (vaultStatus.unlocked ? 'Unlocked' : 'Locked') : 'Not initialized') : 'Unavailable'}
-          </p>
-          <input
-            value={vaultPassphrase}
-            type="password"
-            placeholder="Master passphrase"
-            onChange={(event) => setVaultPassphrase(event.target.value)}
-          />
-          <div className="vault-actions">
-            {!vaultStatus?.initialized && (
-              <button type="button" onClick={() => void handleVaultInit()} disabled={busy}>Init</button>
-            )}
-            {vaultStatus?.initialized && !vaultStatus.unlocked && (
-              <button type="button" onClick={() => void handleVaultUnlock()} disabled={busy}>Unlock</button>
-            )}
-            {vaultStatus?.initialized && vaultStatus.unlocked && (
-              <button type="button" onClick={() => void handleVaultLock()} disabled={busy}>Lock</button>
-            )}
-          </div>
-          {recoveryPhrase && (
-            <>
-              <pre className="recovery-phrase">{recoveryPhrase}</pre>
-              <button
-                type="button"
-                onClick={() => {
-                  downloadTextFile('daedalus-recovery-phrase.txt', recoveryPhrase)
-                }}
-              >
-                Download Recovery TXT
-              </button>
-            </>
-          )}
+          </nav>
         </div>
       </aside>
 
@@ -740,11 +714,82 @@ function App() {
         {statusLine && <p className="status-line">{statusLine}</p>}
       </section>
 
-      {showAuthModal && (
-        <div className="modal-backdrop" onClick={() => setShowAuthModal(false)}>
+      {showVaultLockScreen && (
+        <div className="modal-backdrop vault-lock-overlay" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-card glass vault-lock-card" onClick={(event) => event.stopPropagation()}>
+            <h2>{vaultInitialized ? 'Unlock Vault' : 'Initialize Vault'}</h2>
+            <p className="hint">
+              {vaultInitialized
+                ? 'Vault is locked. Enter your master passphrase to continue.'
+                : 'Create a master passphrase to enable SSH credentials storage.'}
+            </p>
+
+            <input
+              value={vaultPassphrase}
+              type="password"
+              placeholder="Master passphrase"
+              onChange={(event) => setVaultPassphrase(event.target.value)}
+            />
+
+            <div className="modal-actions">
+              {!vaultInitialized ? (
+                <button
+                  type="button"
+                  className="btn-emerald"
+                  onClick={() => { void handleVaultInit() }}
+                  disabled={busy}
+                >
+                  Initialize Vault
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-emerald"
+                  onClick={() => { void handleVaultUnlock() }}
+                  disabled={busy}
+                >
+                  Unlock Vault
+                </button>
+              )}
+            </div>
+
+            {recoveryPhrase && (
+              <>
+                <pre className="recovery-phrase">{recoveryPhrase}</pre>
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadTextFile('daedalus-recovery-phrase.txt', recoveryPhrase)
+                  }}
+                >
+                  Download Recovery TXT
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showSessionDialog && (
+        <div className="modal-backdrop" onClick={() => setShowSessionDialog(false)}>
           <div className="modal-card glass" onClick={(event) => event.stopPropagation()}>
-            <h2>Session Authentication</h2>
-            <p className="hint">Command: {pendingCommand}</p>
+            <h2>New SSH Session</h2>
+
+            <div className="auth-form">
+              <label htmlFor="session-command-input">SSH command</label>
+              <input
+                id="session-command-input"
+                value={sessionCommand}
+                onChange={(event) => setSessionCommand(event.target.value)}
+                placeholder="ssh sb@34.186.124.156 -p 22"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <p className="hint">
+                Parser: {parsedCommand.isSsh ? 'ssh' : 'raw'} {parsedCommand.user ?? ''}{parsedCommand.host ? `@${parsedCommand.host}` : ''}{parsedCommand.port ? ` :${parsedCommand.port}` : ''}
+              </p>
+            </div>
 
             <div className="auth-methods">
               <button
@@ -815,7 +860,7 @@ function App() {
             )}
 
             <div className="modal-actions">
-              <button type="button" onClick={() => setShowAuthModal(false)}>Cancel</button>
+              <button type="button" onClick={() => setShowSessionDialog(false)}>Cancel</button>
               <button
                 type="button"
                 className="btn-emerald"
