@@ -24,12 +24,15 @@ function parseAllowedHosts(raw: string | undefined): Set<string> {
 }
 
 export function loadConfig(): AppConfig {
+  const useSSL = process.env.MINIO_USE_SSL === "true";
+  const defaultMinioPort = useSSL ? 443 : 9000;
+
   return {
     port: Number(process.env.PORT ?? 8080),
     minio: {
       endPoint: process.env.MINIO_ENDPOINT ?? "localhost",
-      port: Number(process.env.MINIO_PORT ?? 9000),
-      useSSL: process.env.MINIO_USE_SSL === "true",
+      port: Number(process.env.MINIO_PORT ?? defaultMinioPort),
+      useSSL,
       accessKey: process.env.MINIO_ACCESS_KEY ?? "minioadmin",
       secretKey: process.env.MINIO_SECRET_KEY ?? "minioadmin",
       bucket: process.env.MINIO_BUCKET ?? "daedalus",
