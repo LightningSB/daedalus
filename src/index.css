@@ -645,16 +645,44 @@ body {
   background: rgba(16, 24, 32, 0.64);
   color: #f8fffd;
   border-radius: 0.75rem;
-  padding: 0.62rem;
+  padding: 0.45rem;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.55rem;
-  text-align: left;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .host-nav-item:hover {
   border-color: rgba(20, 184, 166, 0.55);
   background: rgba(20, 184, 166, 0.12);
+}
+
+.host-nav-launch {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.2rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  text-align: left;
+  align-items: start;
+}
+
+.host-nav-delete {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(20, 28, 36, 0.86);
+  color: #ffd3d3;
+  border-radius: 0.52rem;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.host-nav-delete:disabled {
+  opacity: 0.55;
 }
 
 .host-dot {

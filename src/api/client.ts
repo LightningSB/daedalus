@@ -153,6 +153,12 @@ export function createApiClient(userId: string) {
       })
     },
 
+    async deleteSavedHost(hostId: string): Promise<void> {
+      await requestJson(`/ssh/hosts/${encodeURIComponent(hostId)}`, {
+        method: 'DELETE',
+      })
+    },
+
     async getVaultStatus(): Promise<VaultStatus> {
       const data = await requestJson<Record<string, unknown>>('/vault/status')
       return {

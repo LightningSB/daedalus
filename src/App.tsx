@@ -504,6 +504,26 @@ function App() {
     }
   }, [apiClient])
 
+  const handleDeleteHost = useCallback(async (host: SavedHost) => {
+    const confirmed = window.confirm(`Delete saved host "${host.name}"?`)
+    if (!confirmed) return
+
+    setBusy(true)
+    try {
+      await apiClient.deleteSavedHost(host.id)
+      await refreshSavedHosts()
+      setStatusLine(`Deleted host: ${host.name}`)
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setStatusLine(`Failed to delete host: ${error.message}`)
+      } else {
+        setStatusLine('Failed to delete host.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }, [apiClient, refreshSavedHosts])
+
   useEffect(() => {
     void refreshSavedHosts()
     void refreshVaultStatus()
@@ -875,18 +895,29 @@ function App() {
             {savedHosts.map((host) => {
               const command = `ssh ${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? ` -p ${host.port}` : ''}`
               return (
-                <button
-                  key={host.id}
-                  type="button"
-                  className="host-nav-item"
-                  onClick={() => handleOpenSessionClick(command)}
-                >
-                  <span className="host-dot" />
-                  <span className="host-meta">
-                    <strong>{host.name}</strong>
-                    <small>{command}</small>
-                  </span>
-                </button>
+                <div key={host.id} className="host-nav-item">
+                  <button
+                    type="button"
+                    className="host-nav-launch"
+                    onClick={() => handleOpenSessionClick(command)}
+                  >
+                    <span className="host-dot" />
+                    <span className="host-meta">
+                      <strong>{host.name}</strong>
+                      <small>{command}</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="host-nav-delete"
+                    onClick={() => { void handleDeleteHost(host) }}
+                    title={`Delete ${host.name}`}
+                    aria-label={`Delete ${host.name}`}
+                    disabled={busy}
+                  >
+                    🗑
+                  </button>
+                </div>
               )
             })}
           </nav>
