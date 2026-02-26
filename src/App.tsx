@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -17,6 +17,12 @@ type SessionTab = {
   id: string
   title: string
   websocketUrl: string
+}
+
+type SessionCredentials = {
+  password?: string
+  privateKey?: string
+  passphrase?: string
 }
 
 type ParsedSshCommand = {
@@ -358,6 +364,15 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
 
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [pendingCommand, setPendingCommand] = useState('')
+  const [authMethod, setAuthMethod] = useState<'key' | 'password' | 'none'>('key')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authPrivateKey, setAuthPrivateKey] = useState('')
+  const [authPrivateKeyFilename, setAuthPrivateKeyFilename] = useState('')
+  const [authKeyPassphrase, setAuthKeyPassphrase] = useState('')
+  const keyFileInputRef = useRef<HTMLInputElement | null>(null)
+
   const parsedCommand = useMemo(() => parseSshCommand(commandInput.trim()), [commandInput])
 
   const refreshSavedHosts = useCallback(async () => {
@@ -392,7 +407,11 @@ function App() {
     void refreshVaultStatus()
   }, [refreshSavedHosts, refreshVaultStatus])
 
-  const createSession = useCallback(async (rawCommand: string, titleOverride?: string) => {
+  const createSession = useCallback(async (
+    rawCommand: string,
+    titleOverride?: string,
+    credentials?: SessionCredentials,
+  ) => {
     if (!rawCommand.trim()) {
       setStatusLine('Command is required.')
       return
@@ -405,6 +424,7 @@ function App() {
       const created: CreateSshSessionResponse = await apiClient.createSshSession({
         rawCommand,
         vaultToken: vaultToken ?? undefined,
+        ...credentials,
       })
 
       const nextTab: SessionTab = {
@@ -502,6 +522,63 @@ function App() {
     }
   }, [apiClient, refreshVaultStatus, vaultToken])
 
+  const handleOpenSessionClick = useCallback(() => {
+    const trimmed = commandInput.trim()
+    if (!trimmed) {
+      setStatusLine('Command is required.')
+      return
+    }
+
+    setPendingCommand(trimmed)
+    setAuthMethod('key')
+    setAuthPassword('')
+    setAuthPrivateKey('')
+    setAuthPrivateKeyFilename('')
+    setAuthKeyPassphrase('')
+    setShowAuthModal(true)
+  }, [commandInput])
+
+  const handleAuthKeyFileSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const text = await file.text()
+    setAuthPrivateKey(text)
+    setAuthPrivateKeyFilename(file.name)
+    event.target.value = ''
+  }, [])
+
+  const handleConnectWithAuth = useCallback(async () => {
+    if (!pendingCommand) {
+      setStatusLine('No pending command.')
+      return
+    }
+
+    let credentials: SessionCredentials | undefined
+
+    if (authMethod === 'password') {
+      if (!authPassword.trim()) {
+        setStatusLine('Password is required for password auth.')
+        return
+      }
+      credentials = { password: authPassword }
+    }
+
+    if (authMethod === 'key') {
+      if (!authPrivateKey.trim()) {
+        setStatusLine('Upload or paste a private key first.')
+        return
+      }
+      credentials = {
+        privateKey: authPrivateKey,
+        passphrase: authKeyPassphrase.trim() || undefined,
+      }
+    }
+
+    setShowAuthModal(false)
+    await createSession(pendingCommand, undefined, credentials)
+  }, [authKeyPassphrase, authMethod, authPassword, authPrivateKey, createSession, pendingCommand])
+
   return (
     <main className={`workbench-shell ${fullscreen ? 'workbench-fullscreen' : ''}`}>
       <aside className="workbench-sidebar">
@@ -524,9 +601,7 @@ function App() {
             type="button"
             className="btn-emerald"
             disabled={busy}
-            onClick={() => {
-              void createSession(commandInput.trim())
-            }}
+            onClick={handleOpenSessionClick}
           >
             Open Session
           </button>
@@ -664,6 +739,95 @@ function App() {
 
         {statusLine && <p className="status-line">{statusLine}</p>}
       </section>
+
+      {showAuthModal && (
+        <div className="modal-backdrop" onClick={() => setShowAuthModal(false)}>
+          <div className="modal-card glass" onClick={(event) => event.stopPropagation()}>
+            <h2>Session Authentication</h2>
+            <p className="hint">Command: {pendingCommand}</p>
+
+            <div className="auth-methods">
+              <button
+                type="button"
+                className={authMethod === 'key' ? 'tab active' : 'tab'}
+                onClick={() => setAuthMethod('key')}
+              >
+                Private Key
+              </button>
+              <button
+                type="button"
+                className={authMethod === 'password' ? 'tab active' : 'tab'}
+                onClick={() => setAuthMethod('password')}
+              >
+                Password
+              </button>
+              <button
+                type="button"
+                className={authMethod === 'none' ? 'tab active' : 'tab'}
+                onClick={() => setAuthMethod('none')}
+              >
+                Vault/Profile Only
+              </button>
+            </div>
+
+            {authMethod === 'key' && (
+              <div className="auth-form">
+                <div className="auth-actions-row">
+                  <button
+                    type="button"
+                    onClick={() => keyFileInputRef.current?.click()}
+                  >
+                    Upload key file
+                  </button>
+                  {authPrivateKeyFilename && <span className="hint">{authPrivateKeyFilename}</span>}
+                </div>
+                <input
+                  ref={keyFileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pem,.key,.ppk,.txt,*/*"
+                  onChange={(event) => { void handleAuthKeyFileSelected(event) }}
+                />
+                <textarea
+                  value={authPrivateKey}
+                  onChange={(event) => setAuthPrivateKey(event.target.value)}
+                  placeholder="Paste private key here"
+                  className="auth-textarea"
+                />
+                <input
+                  value={authKeyPassphrase}
+                  onChange={(event) => setAuthKeyPassphrase(event.target.value)}
+                  type="password"
+                  placeholder="Key passphrase (optional)"
+                />
+              </div>
+            )}
+
+            {authMethod === 'password' && (
+              <div className="auth-form">
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  type="password"
+                  placeholder="SSH password"
+                />
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button type="button" onClick={() => setShowAuthModal(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn-emerald"
+                onClick={() => { void handleConnectWithAuth() }}
+                disabled={busy}
+              >
+                Connect
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

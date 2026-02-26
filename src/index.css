@@ -366,6 +366,87 @@ body {
   color: rgba(255, 255, 255, 0.84);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(5, 9, 14, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(680px, 100%);
+  border-radius: 0.9rem;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.modal-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.auth-methods {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.auth-form input,
+.auth-textarea {
+  background: rgba(11, 18, 24, 0.7);
+  border: 1px solid var(--color-dark-border);
+  border-radius: 0.6rem;
+  color: #f5f7fb;
+  padding: 0.65rem 0.7rem;
+  outline: none;
+}
+
+.auth-form input:focus,
+.auth-textarea:focus {
+  border-color: rgba(20, 184, 166, 0.7);
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+}
+
+.auth-textarea {
+  min-height: 150px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.78rem;
+}
+
+.auth-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.modal-actions button {
+  border: 1px solid var(--color-dark-border);
+  color: #f8fffd;
+  background: rgba(16, 24, 32, 0.75);
+  border-radius: 0.55rem;
+  padding: 0.48rem 0.62rem;
+}
+
 @media (min-width: 1080px) {
   .workbench-shell {
     grid-template-columns: 360px 1fr;

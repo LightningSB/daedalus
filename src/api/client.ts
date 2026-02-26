@@ -31,6 +31,9 @@ export type VaultStatus = {
 export type CreateSshSessionRequest = {
   rawCommand: string
   vaultToken?: string
+  password?: string
+  privateKey?: string
+  passphrase?: string
 }
 
 export type CreateSshSessionResponse = {
@@ -177,7 +180,12 @@ export function createApiClient(userId: string) {
     async createSshSession(payload: CreateSshSessionRequest): Promise<CreateSshSessionResponse> {
       const data = await requestJson<{ session?: Record<string, unknown> }>('/ssh/sessions', {
         method: 'POST',
-        body: { command: payload.rawCommand },
+        body: {
+          command: payload.rawCommand,
+          password: payload.password,
+          privateKey: payload.privateKey,
+          passphrase: payload.passphrase,
+        },
         vaultToken: payload.vaultToken,
       })
 
