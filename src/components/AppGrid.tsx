@@ -13,6 +13,12 @@ const APPS = [
     icon: '🚗',
     description: 'Decode any vehicle identification number',
   },
+  {
+    id: 'fs-terminal',
+    name: 'FS Terminal',
+    icon: '📱',
+    description: 'Mobile file browser + terminal preview',
+  },
 ]
 
 export function AppGrid({ onAppSelect, onCreateNew }: AppGridProps) {

@@ -2,6 +2,7 @@ import { useState, startTransition, Suspense, lazy } from 'react'
 import { useTelegram } from './hooks/useTelegram'
 import { AppGrid } from './components/AppGrid'
 import { CreateView } from './components/CreateView'
+import { FileSystemTerminalApp } from './components/FileSystemTerminalApp'
 
 const AppLoader = lazy(() => import('./components/AppLoader'))
 
@@ -44,9 +45,13 @@ function App() {
         <CreateView onBack={handleBack} />
       )}
       {view === 'app' && currentAppId && (
-        <Suspense fallback={<LoadingSpinner />}>
-          <AppLoader appId={currentAppId} onBack={handleBack} />
-        </Suspense>
+        currentAppId === 'fs-terminal' ? (
+          <FileSystemTerminalApp onBack={handleBack} />
+        ) : (
+          <Suspense fallback={<LoadingSpinner />}>
+            <AppLoader appId={currentAppId} onBack={handleBack} />
+          </Suspense>
+        )
       )}
     </div>
   )
