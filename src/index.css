@@ -543,6 +543,20 @@ body {
     background: linear-gradient(180deg, rgba(9, 14, 20, 0.95), rgba(9, 14, 20, 0.82));
     box-shadow: 0 0 0 1px rgba(16, 255, 180, 0.1), 18px 0 40px rgba(0, 0, 0, 0.45);
   }
+
+  .mobile-close-sidebar {
+    display: inline-flex;
+  }
+
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(2, 6, 10, 0.56);
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 .modern-sidebar {
@@ -556,6 +570,12 @@ body {
   gap: 0.6rem;
 }
 
+.sidebar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .vault-indicator {
   border: 1px solid var(--color-dark-border);
   background: rgba(16, 24, 32, 0.75);
@@ -567,6 +587,10 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1rem;
+}
+
+.mobile-close-sidebar {
+  display: none;
 }
 
 .new-session-btn {
@@ -638,6 +662,10 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-scrim {
+  display: none;
 }
 
 .vault-lock-overlay {

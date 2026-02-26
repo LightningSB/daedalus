@@ -686,6 +686,7 @@ function App() {
     setAuthPrivateKeyFilename('')
     setAuthKeyPassphrase('')
     setShowSessionDialog(true)
+    setSidebarOpen(false)
   }, [sessionCommand, vaultUnlocked])
 
   const handleAuthKeyFileSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
@@ -788,18 +789,28 @@ function App() {
               <p className="error">Telegram user not detected; vault profile may be wrong.</p>
             )}
           </div>
-          <button
-            type="button"
-            className="vault-indicator"
-            onClick={() => {
-              if (vaultUnlocked) {
-                void handleVaultLock()
-              }
-            }}
-            title={vaultUnlocked ? 'Vault unlocked (click to lock)' : 'Vault locked'}
-          >
-            {vaultUnlocked ? '🔓' : '🔒'}
-          </button>
+          <div className="sidebar-actions">
+            <button
+              type="button"
+              className="vault-indicator"
+              onClick={() => {
+                if (vaultUnlocked) {
+                  void handleVaultLock()
+                }
+              }}
+              title={vaultUnlocked ? 'Vault unlocked (click to lock)' : 'Vault locked'}
+            >
+              {vaultUnlocked ? '🔓' : '🔒'}
+            </button>
+            <button
+              type="button"
+              className="vault-indicator mobile-close-sidebar"
+              onClick={() => setSidebarOpen(false)}
+              title="Close menu"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <button
@@ -841,6 +852,15 @@ function App() {
           </nav>
         </div>
       </aside>
+
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar"
+        />
+      )}
 
       <section className="workbench-main">
         <div className="tabs">
