@@ -1471,13 +1471,15 @@ function App() {
   }, [activeSession?.type, activeSessionId, apiClient])
 
   useEffect(() => {
-    if (activeSession) {
+    if (activeWorkspace !== 'terminal') {
+      document.title = activeWorkspace
+    } else if (activeSession) {
       const type = activeSession.type === 'docker' ? 'docker' : 'bash'
-      document.title = `${type} · ${activeSession.title}`
+      document.title = type
     } else {
       document.title = 'Daedalus'
     }
-  }, [activeSession])
+  }, [activeSession, activeWorkspace])
 
   const tmuxLabel = useMemo(() => {
     if (!activeSessionId || activeSession?.type !== 'ssh' || !tmuxStatus) return 'tmux: …'
@@ -1625,51 +1627,17 @@ function App() {
             >
               {sidebarOpen ? '▤' : '☰'}
             </button>
-            <div className="workspace-tabs">
-              <button
-                type="button"
-                className={activeWorkspace === 'terminal' ? 'workspace-tab active' : 'workspace-tab'}
-                onClick={() => setActiveWorkspace('terminal')}
-                title="Terminal"
-              >
-                ⌨️ <span className="tab-text">Terminal</span>
-              </button>
-              <button
-                type="button"
-                className={activeWorkspace === 'files' ? 'workspace-tab active' : 'workspace-tab'}
-                onClick={() => setActiveWorkspace('files')}
-                title="Files"
-              >
-                📁 <span className="tab-text">Files</span>
-              </button>
-              <button
-                type="button"
-                className={activeWorkspace === 'docker' ? 'workspace-tab active' : 'workspace-tab'}
-                onClick={() => setActiveWorkspace('docker')}
-                title="Docker"
-              >
-                🐳 <span className="tab-text">Docker</span>
-              </button>
-              <button
-                type="button"
-                className={activeWorkspace === 'compose' ? 'workspace-tab active' : 'workspace-tab'}
-                onClick={() => setActiveWorkspace('compose')}
-                title="Compose"
-              >
-                ⚡ <span className="tab-text">Compose</span>
-              </button>
-              <button
-                type="button"
-                className={activeWorkspace === 'openclaw' ? 'workspace-tab active' : 'workspace-tab'}
-                onClick={() => setActiveWorkspace('openclaw')}
-                title="Openclaw"
-              >
-                🦀 <span className="tab-text">Openclaw</span>
-              </button>
-            </div>
           </div>
           <div className="top-bar-center">
-            <span className="host-title">{activeSession ? activeSession.title : 'Daedalus'}</span>
+            <span className="host-title">{
+              activeWorkspace === 'files' ? 'files' :
+              activeWorkspace === 'docker' ? 'docker' :
+              activeWorkspace === 'compose' ? 'compose' :
+              activeWorkspace === 'openclaw' ? 'openclaw' :
+              activeSession?.type === 'docker' ? 'docker' :
+              activeSession ? 'bash' :
+              'Daedalus'
+            }</span>
           </div>
           <div className="top-bar-right">
             {/* Optional right-side actions can go here */}
@@ -1729,8 +1697,8 @@ function App() {
             <button
               key={session.id}
               type="button"
-              className={session.id === activeSessionId ? 'tab active' : 'tab'}
-              onClick={() => setActiveSessionId(session.id)}
+              className={session.id === activeSessionId && activeWorkspace === 'terminal' ? 'tab active' : 'tab'}
+              onClick={() => { setActiveSessionId(session.id); setActiveWorkspace('terminal') }}
             >
               <span>{session.type === 'docker' ? `docker · ${session.title}` : session.title}</span>
               <button
@@ -1746,7 +1714,38 @@ function App() {
               </button>
             </button>
           ))}
-          {sessions.length === 0 && <p className="hint empty-tabs">No active sessions.</p>}
+          <button
+            type="button"
+            className={activeWorkspace === 'files' ? 'tab active' : 'tab'}
+            onClick={() => setActiveWorkspace('files')}
+            title="File Browser"
+          >
+            📁 <span className="tab-text">files</span>
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'docker' ? 'tab active' : 'tab'}
+            onClick={() => setActiveWorkspace('docker')}
+            title="Docker Explorer"
+          >
+            🐳 <span className="tab-text">docker</span>
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'compose' ? 'tab active' : 'tab'}
+            onClick={() => setActiveWorkspace('compose')}
+            title="Compose Runner"
+          >
+            ⚡ <span className="tab-text">compose</span>
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'openclaw' ? 'tab active' : 'tab'}
+            onClick={() => setActiveWorkspace('openclaw')}
+            title="Openclaw CLI"
+          >
+            🦀 <span className="tab-text">openclaw</span>
+          </button>
         </div>
 
         <div className={activeWorkspace === 'terminal' ? 'terminal-area' : 'terminal-area hidden'}>
