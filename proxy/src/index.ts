@@ -28,6 +28,9 @@ let selfContainerFailureLogged = false;
 // User-scoped event subscribers (for realtime push)
 const userEventSockets = new Map<string, Set<Bun.ServerWebSocket<unknown>>>();
 
+// Track first docker-exec input per exec session to avoid input-log spam.
+const dockerExecFirstInputSeen = new Set<string>();
+
 function broadcastUserEvent(userId: string, event: unknown): void {
   const sockets = userEventSockets.get(userId);
   if (!sockets) return;
@@ -1199,7 +1202,36 @@ const server = Bun.serve<WsSessionData>({
           ws.close();
         }
       } else if (data.kind === "docker-exec") {
-        void dockerService.attachExecWebSocket(data, ws);
+        void logServerEvent({
+          category: "docker-exec-ws",
+          message: "attach_requested",
+          meta: { containerId: data.containerId, execSessionId: data.execSessionId },
+        });
+
+        void dockerService.attachExecWebSocket(data, ws).then(() => {
+          void logServerEvent({
+            category: "docker-exec-ws",
+            message: "attach_completed",
+            meta: { containerId: data.containerId, execSessionId: data.execSessionId },
+          });
+        }).catch((error: unknown) => {
+          void logServerEvent({
+            level: "error",
+            category: "docker-exec-ws",
+            message: "attach_failed",
+            meta: {
+              containerId: data.containerId,
+              execSessionId: data.execSessionId,
+              error: error instanceof Error ? error.message : "unknown",
+            },
+          });
+          try {
+            ws.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Open failed" }));
+            ws.close();
+          } catch {
+            // ignore
+          }
+        });
       } else if (data.kind === "ssh-docker-exec") {
         void sshService.attachSshExecWebSocket(
           data.userId,
@@ -1253,8 +1285,30 @@ const server = Bun.serve<WsSessionData>({
             rows?: number;
           };
           if (parsed.type === "input" && typeof parsed.data === "string") {
+            if (!dockerExecFirstInputSeen.has(data.execSessionId)) {
+              dockerExecFirstInputSeen.add(data.execSessionId);
+              void logServerEvent({
+                category: "docker-exec-ws",
+                message: "first_input_received",
+                meta: {
+                  execSessionId: data.execSessionId,
+                  containerId: data.containerId,
+                  inputLength: parsed.data.length,
+                },
+              });
+            }
             dockerService.sendExecInput(data.execSessionId, parsed.data);
           } else if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+            void logServerEvent({
+              category: "docker-exec-ws",
+              message: "resize_received",
+              meta: {
+                execSessionId: data.execSessionId,
+                containerId: data.containerId,
+                cols: parsed.cols,
+                rows: parsed.rows,
+              },
+            });
             dockerService.resizeExecTerminal(data.execSessionId, parsed.cols, parsed.rows);
           }
         } catch {
@@ -1288,6 +1342,12 @@ const server = Bun.serve<WsSessionData>({
         );
       } else if (data.kind === "docker-exec") {
         dockerService.detachExecWebSocket(data.execSessionId);
+        dockerExecFirstInputSeen.delete(data.execSessionId);
+        void logServerEvent({
+          category: "docker-exec-ws",
+          message: "ws_closed",
+          meta: { execSessionId: data.execSessionId, containerId: data.containerId },
+        });
       } else if (data.kind === "ssh-docker-exec") {
         sshService.detachSshExecWebSocket(data.execSessionId);
       } else if (data.kind === "user-events") {

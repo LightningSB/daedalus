@@ -83,9 +83,11 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, 
     socketRef.current = ws
     const connectedAt = Date.now()
     let firstOutputLogged = false
+    let firstInputSentLogged = false
 
     ws.onopen = () => {
       term.writeln('\x1b[2m[Connected to container exec...]\x1b[0m')
+      term.focus()
       if (apiClient) {
         logClient(apiClient, 'info', 'docker-terminal', 'ws_open', { containerId, wsUrl })
       }
@@ -93,6 +95,12 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, 
         window.setTimeout(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'input', data: initialInput }))
+            if (apiClient) {
+              logClient(apiClient, 'info', 'docker-terminal', 'initial_input_sent', {
+                containerId,
+                bytes: initialInput.length,
+              })
+            }
           }
         }, 500)
       }
@@ -124,6 +132,9 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, 
           term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`)
           if (apiClient) logClient(apiClient, 'error', 'docker-terminal', 'ws_error_message', { containerId, message: msg.message })
         } else if (msg.type === 'ready') {
+          if (apiClient) {
+            logClient(apiClient, 'info', 'docker-terminal', 'ready_received', { containerId })
+          }
           if (ws.readyState === WebSocket.OPEN && termRef.current) {
             ws.send(JSON.stringify({
               type: 'resize',
@@ -156,6 +167,15 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, 
 
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) {
+        if (!firstInputSentLogged) {
+          firstInputSentLogged = true
+          if (apiClient) {
+            logClient(apiClient, 'info', 'docker-terminal', 'first_user_input_sent', {
+              containerId,
+              bytes: data.length,
+            })
+          }
+        }
         ws.send(JSON.stringify({ type: 'input', data }))
       }
     })
@@ -171,12 +191,17 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, 
       // Second pass for mobile keyboard animation settling
       window.setTimeout(() => fitAddon.fit(), 50)
     }
+
+    const handleFocusTerminal = () => term.focus()
+    containerRef.current.addEventListener('pointerdown', handleFocusTerminal)
+
     window.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('scroll', handleResize)
 
     return () => {
+      containerRef.current?.removeEventListener('pointerdown', handleFocusTerminal)
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
