@@ -737,6 +737,19 @@ body {
   overflow: hidden;
 }
 
+.fm-desktop-dual {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  overflow: hidden;
+}
+
+.fm-desktop-dual > .file-pane {
+  min-width: 0;
+  height: 100%;
+}
+
 .fm-desktop-grid > .file-pane {
   flex: 1 1 auto;
   min-width: 0;
