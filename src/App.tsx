@@ -1675,15 +1675,13 @@ function App() {
           </div>
           <div className="top-bar-right">
             {!sidebarOpen && (
-              <div className="topbar-logo-only" aria-label="Daedalus logo">
-                <img
-                  src={DAEDALUS_LOGO_URL}
-                  alt="Daedalus logo"
-                  className="brand-logo"
-                  loading="eager"
-                  decoding="async"
-                />
-              </div>
+              <img
+                src={DAEDALUS_LOGO_URL}
+                alt="Daedalus logo"
+                className="brand-logo topbar-logo-only"
+                loading="eager"
+                decoding="async"
+              />
             )}
           </div>
         </div>
