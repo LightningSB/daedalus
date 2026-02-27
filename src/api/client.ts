@@ -28,6 +28,11 @@ export type VaultStatus = {
   unlocked: boolean
 }
 
+export type UserEmailProfile = {
+  email: string | null
+  updatedAt?: string
+}
+
 export type CreateSshSessionRequest = {
   rawCommand: string
   hostId?: string
@@ -156,6 +161,27 @@ export function createApiClient(userId: string) {
     return data as T
   }
 
+  async function authJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    })
+    const text = await response.text()
+    let data: unknown = null
+    if (text) {
+      try { data = JSON.parse(text) } catch { data = null }
+    }
+    if (!response.ok) {
+      const message = typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : `Request failed (${response.status})`
+      throw new ApiError(message, response.status)
+    }
+    return data as T
+  }
+
   return {
     getSessionWebsocketUrl(sessionId: string): string {
       return wsUrlFor(`${base}/ssh/sessions/${encodeURIComponent(sessionId)}/ws`)
@@ -193,6 +219,45 @@ export function createApiClient(userId: string) {
         initialized: Boolean(data.initialized),
         unlocked: Boolean(data.unlocked),
       }
+    },
+
+    async getEmailProfile(): Promise<UserEmailProfile> {
+      const data = await requestJson<Record<string, unknown>>('/profile/email')
+      return {
+        email: typeof data.email === 'string' && data.email.length > 0 ? data.email : null,
+        updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+      }
+    },
+
+    async setEmailProfile(email: string): Promise<UserEmailProfile> {
+      const data = await requestJson<Record<string, unknown>>('/profile/email', {
+        method: 'POST',
+        body: { email },
+      })
+      return {
+        email: typeof data.email === 'string' && data.email.length > 0 ? data.email : null,
+        updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+      }
+    },
+
+    async sendTelegramMagicLink(email: string): Promise<{ ok: boolean }> {
+      const data = await authJson<Record<string, unknown>>('/auth/magic-link/send', {
+        method: 'POST',
+        body: { email },
+      })
+      return { ok: Boolean(data.ok) }
+    },
+
+    async verifyMagicLink(token: string): Promise<{ userId: string }> {
+      const data = await authJson<Record<string, unknown>>('/auth/magic-link/verify', {
+        method: 'POST',
+        body: { token },
+      })
+      const userId = typeof data.userId === 'string' ? data.userId : ''
+      if (!userId) {
+        throw new ApiError('Magic link response missing userId', 500)
+      }
+      return { userId }
     },
 
     async initVault(passphrase: string): Promise<{ recoveryPhrase: string }> {

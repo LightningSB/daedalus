@@ -929,6 +929,41 @@ function App() {
     }
   }, [derivedUserId])
 
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('magicToken')
+    if (!token) return
+
+    void (async () => {
+      try {
+        const result = await apiClient.verifyMagicLink(token)
+        window.localStorage.setItem('daedalus:lastUserId', result.userId)
+        const next = new URL(window.location.href)
+        next.searchParams.delete('magicToken')
+        window.location.replace(next.toString())
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Magic link verification failed.'
+        setStatusLine(message)
+      }
+    })()
+  }, [apiClient])
+
+  useEffect(() => {
+    if (!derivedUserId || derivedUserId === 'local-dev') {
+      setLinkedEmail(null)
+      setEmailDraft('')
+      return
+    }
+    void (async () => {
+      try {
+        const profile = await apiClient.getEmailProfile()
+        setLinkedEmail(profile.email)
+        setEmailDraft(profile.email ?? '')
+      } catch {
+        // ignore email profile load failures
+      }
+    })()
+  }, [apiClient, derivedUserId])
+
   const [sessions, setSessions] = useState<SessionTab[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [savedHosts, setSavedHosts] = useState<SavedHost[]>([])
@@ -954,6 +989,10 @@ function App() {
   const [saveHostEnabled, setSaveHostEnabled] = useState(false)
   const [saveHostLabel, setSaveHostLabel] = useState('')
   const [selectedHostLaunch, setSelectedHostLaunch] = useState<{ id: string; command: string } | null>(null)
+  const [emailDraft, setEmailDraft] = useState('')
+  const [linkedEmail, setLinkedEmail] = useState<string | null>(null)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailStatus, setEmailStatus] = useState<string | null>(null)
   const keyFileInputRef = useRef<HTMLInputElement>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
@@ -1534,6 +1573,46 @@ function App() {
     })
   }, [activeSession?.type, activeSessionId, activeWorkspace, apiClient])
 
+  const handleSaveEmail = useCallback(async () => {
+    const email = emailDraft.trim()
+    if (!email) {
+      setEmailStatus('Enter an email first.')
+      return
+    }
+
+    setEmailBusy(true)
+    setEmailStatus(null)
+    try {
+      const profile = await apiClient.setEmailProfile(email)
+      setLinkedEmail(profile.email)
+      setEmailDraft(profile.email ?? '')
+      setEmailStatus('Email linked.')
+    } catch (error) {
+      setEmailStatus(error instanceof Error ? error.message : 'Failed to link email.')
+    } finally {
+      setEmailBusy(false)
+    }
+  }, [apiClient, emailDraft])
+
+  const handleSendMagicLink = useCallback(async () => {
+    const email = emailDraft.trim()
+    if (!email) {
+      setEmailStatus('Enter an email first.')
+      return
+    }
+
+    setEmailBusy(true)
+    setEmailStatus(null)
+    try {
+      await apiClient.sendTelegramMagicLink(email)
+      setEmailStatus('Magic link sent to your Telegram bot DM.')
+    } catch (error) {
+      setEmailStatus(error instanceof Error ? error.message : 'Failed to send magic link.')
+    } finally {
+      setEmailBusy(false)
+    }
+  }, [apiClient, emailDraft])
+
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
@@ -1587,6 +1666,36 @@ function App() {
         >
           + New Session
         </button>
+
+        <div className="panel auth-email-panel">
+          <div className="panel-header">
+            <h2>Email Link</h2>
+          </div>
+          <label htmlFor="email-link-input">Login email</label>
+          <input
+            id="email-link-input"
+            type="email"
+            value={emailDraft}
+            onChange={(event) => setEmailDraft(event.target.value)}
+            placeholder="you@example.com"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          {linkedEmail && (
+            <p className="hint">Linked: {linkedEmail}</p>
+          )}
+          {derivedUserId === 'local-dev' && (
+            <p className="hint">Open from Telegram once to bind email to a Telegram user.</p>
+          )}
+          {emailStatus && <p className="hint">{emailStatus}</p>}
+          <div className="vault-actions">
+            <button type="button" onClick={() => { void handleSaveEmail() }} disabled={emailBusy || derivedUserId === 'local-dev'}>Save Email</button>
+            <button type="button" onClick={() => { void handleSendMagicLink() }} disabled={emailBusy || !emailDraft.trim()}>
+              Send Magic Link
+            </button>
+          </div>
+        </div>
 
         <div className="sidebar-section">
           <div className="panel-header">

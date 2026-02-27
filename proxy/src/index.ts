@@ -6,6 +6,7 @@ import { SshService } from "./services/sshService";
 import * as dockerService from "./services/dockerService";
 import * as dockerComposeService from "./services/dockerComposeService";
 import { SshDockerService } from "./services/sshDockerService";
+import { MagicLinkService } from "./services/magicLinkService";
 import { getVaultToken, json, readJson } from "./utils/http";
 import type { WsSessionData } from "./types/docker";
 
@@ -16,6 +17,7 @@ await store.init();
 const vault = new VaultService(store, config.vaultIdleTimeoutMs);
 const sshService = new SshService(store, vault, config.sshAllowedHosts);
 const sshDockerService = new SshDockerService(sshService);
+const magicLinkService = new MagicLinkService(store, config);
 
 function corsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get("origin") ?? "*";
@@ -227,6 +229,52 @@ async function handleClientLogs(request: Request, userId: string): Promise<Respo
   }
 
   return bad(request, new Error("Method not allowed"), 405);
+}
+
+async function handleUserEmailProfile(request: Request, userId: string): Promise<Response> {
+  if (request.method === "GET") {
+    const profile = await magicLinkService.getUserEmail(userId);
+    return ok(request, profile);
+  }
+
+  if (request.method === "POST") {
+    const body = await readJson<{ email?: string }>(request);
+    if (!body.email) {
+      return bad(request, new Error("email is required"), 400);
+    }
+    const profile = await magicLinkService.setUserEmail(userId, body.email);
+    return ok(request, profile, 201);
+  }
+
+  return bad(request, new Error("Method not allowed"), 405);
+}
+
+async function handleMagicLinkSend(request: Request): Promise<Response> {
+  if (request.method !== "POST") {
+    return bad(request, new Error("Method not allowed"), 405);
+  }
+
+  const body = await readJson<{ email?: string }>(request);
+  if (!body.email) {
+    return bad(request, new Error("email is required"), 400);
+  }
+
+  await magicLinkService.sendMagicLinkToTelegram(body.email);
+  return ok(request, { ok: true });
+}
+
+async function handleMagicLinkVerify(request: Request): Promise<Response> {
+  if (request.method !== "POST") {
+    return bad(request, new Error("Method not allowed"), 405);
+  }
+
+  const body = await readJson<{ token?: string }>(request);
+  if (!body.token) {
+    return bad(request, new Error("token is required"), 400);
+  }
+
+  const out = await magicLinkService.verifyMagicLink(body.token);
+  return ok(request, out);
 }
 
 async function handleVault(request: Request, userId: string, action: string): Promise<Response> {
@@ -465,6 +513,19 @@ const server = Bun.serve<WsSessionData>({
       match = pathname.match(/^\/api\/users\/([^/]+)\/client-logs$/);
       if (match) {
         return await handleClientLogs(request, decodeURIComponent(match[1]));
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/profile\/email$/);
+      if (match) {
+        return await handleUserEmailProfile(request, decodeURIComponent(match[1]));
+      }
+
+      if (pathname === "/api/auth/magic-link/send") {
+        return await handleMagicLinkSend(request);
+      }
+
+      if (pathname === "/api/auth/magic-link/verify") {
+        return await handleMagicLinkVerify(request);
       }
 
       match = pathname.match(/^\/api\/users\/([^/]+)\/vault\/(status|init|unlock|lock|recover)$/);

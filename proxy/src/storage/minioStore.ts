@@ -55,6 +55,23 @@ export type ClientLogEvent = {
   meta?: Record<string, unknown>;
 };
 
+export type UserProfile = {
+  email?: string;
+  emailNormalized?: string;
+  emailVerifiedAt?: string;
+  updatedAt: string;
+};
+
+export type EmailIndex = Record<string, string>;
+
+export type MagicLinkRecord = {
+  userId: string;
+  emailNormalized: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt?: string;
+};
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -131,6 +148,18 @@ export class MinioStore {
     return `users/${encodeURIComponent(userId)}/known-hosts.json`;
   }
 
+  userProfileKey(userId: string): string {
+    return `users/${encodeURIComponent(userId)}/profile.json`;
+  }
+
+  emailIndexKey(): string {
+    return "auth/email-index.json";
+  }
+
+  magicLinkKey(tokenHash: string): string {
+    return `auth/magic-links/${tokenHash}.json`;
+  }
+
   async getVault(userId: string): Promise<StoredVault | null> {
     return this.getJson<StoredVault>(this.userVaultKey(userId));
   }
@@ -153,6 +182,30 @@ export class MinioStore {
 
   async putKnownHosts(userId: string, knownHosts: KnownHostsMap): Promise<void> {
     await this.putJson(this.userKnownHostsKey(userId), knownHosts);
+  }
+
+  async getUserProfile(userId: string): Promise<UserProfile | null> {
+    return this.getJson<UserProfile>(this.userProfileKey(userId));
+  }
+
+  async putUserProfile(userId: string, profile: UserProfile): Promise<void> {
+    await this.putJson(this.userProfileKey(userId), profile);
+  }
+
+  async getEmailIndex(): Promise<EmailIndex> {
+    return (await this.getJson<EmailIndex>(this.emailIndexKey())) ?? {};
+  }
+
+  async putEmailIndex(index: EmailIndex): Promise<void> {
+    await this.putJson(this.emailIndexKey(), index);
+  }
+
+  async getMagicLink(tokenHash: string): Promise<MagicLinkRecord | null> {
+    return this.getJson<MagicLinkRecord>(this.magicLinkKey(tokenHash));
+  }
+
+  async putMagicLink(tokenHash: string, record: MagicLinkRecord): Promise<void> {
+    await this.putJson(this.magicLinkKey(tokenHash), record);
   }
 
   async appendAuditEvent(event: AuditEvent): Promise<void> {

@@ -1761,6 +1761,14 @@ body {
   letter-spacing: 0.01em;
 }
 
+.auth-email-panel {
+  margin-top: 0.45rem;
+}
+
+.auth-email-panel .vault-actions {
+  margin-top: 0.15rem;
+}
+
 .sidebar-section {
   margin-top: 0.35rem;
   display: flex;

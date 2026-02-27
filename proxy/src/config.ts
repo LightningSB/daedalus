@@ -10,6 +10,10 @@ export type AppConfig = {
   };
   sshAllowedHosts: Set<string>;
   vaultIdleTimeoutMs: number;
+  appOrigin: string;
+  telegram: {
+    botToken?: string;
+  };
 };
 
 const DEFAULT_ALLOWED_HOSTS = ["34.186.124.156"];
@@ -39,5 +43,9 @@ export function loadConfig(): AppConfig {
     },
     sshAllowedHosts: parseAllowedHosts(process.env.SSH_ALLOWED_HOSTS),
     vaultIdleTimeoutMs: 30 * 60 * 1000,
+    appOrigin: process.env.APP_ORIGIN ?? "https://daedalus.wheelbase.io",
+    telegram: {
+      botToken: process.env.TELEGRAM_BOT_TOKEN,
+    },
   };
 }
