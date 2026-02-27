@@ -644,15 +644,15 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
             <span className="file-manager-sub">{headerSubtitle}</span>
           </div>
           <div className="file-manager-actions">
-            <button type="button" onClick={handleUploadClick} disabled={!sessionId}>⇪ Upload</button>
-            <button type="button" onClick={handleDownload} disabled={!downloadUrl}>⇩ Download</button>
-            <button type="button" onClick={handleNewFolder} disabled={!sessionId}>📁 New Folder</button>
-            <button type="button" onClick={handleRename} disabled={!selectedEntry}>✎ Rename</button>
-            <button type="button" onClick={handleDelete} disabled={!selectedEntry}>🗑 Delete</button>
-            <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>✕ Close Pane</button>
-            <button type="button" onClick={() => switchPaneByOffset(-1)} disabled={!canGoPrevPane}>◀</button>
-            <button type="button" onClick={() => switchPaneByOffset(1)} disabled={!canGoNextPane}>▶</button>
-            <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>↻ Refresh</button>
+            <button type="button" className="fm-action-btn" onClick={handleUploadClick} disabled={!sessionId} title="Upload" aria-label="Upload">⇪</button>
+            <button type="button" className="fm-action-btn" onClick={handleDownload} disabled={!downloadUrl} title="Download" aria-label="Download">⇩</button>
+            <button type="button" className="fm-action-btn" onClick={handleNewFolder} disabled={!sessionId} title="New Folder" aria-label="New Folder">📁</button>
+            <button type="button" className="fm-action-btn" onClick={handleRename} disabled={!selectedEntry} title="Rename" aria-label="Rename">✎</button>
+            <button type="button" className="fm-action-btn" onClick={handleDelete} disabled={!selectedEntry} title="Delete" aria-label="Delete">🗑</button>
+            <button type="button" className="fm-action-btn" onClick={closeActivePane} disabled={!activePane || panes.length <= 1} title="Close Pane" aria-label="Close Pane">✕</button>
+            <button type="button" className="fm-action-btn" onClick={() => switchPaneByOffset(-1)} disabled={!canGoPrevPane} title="Previous Pane" aria-label="Previous Pane">◀</button>
+            <button type="button" className="fm-action-btn" onClick={() => switchPaneByOffset(1)} disabled={!canGoNextPane} title="Next Pane" aria-label="Next Pane">▶</button>
+            <button type="button" className="fm-action-btn" onClick={refreshActivePane} disabled={!sessionId || !activePane} title="Refresh" aria-label="Refresh">↻</button>
           </div>
         </div>
       )}

@@ -674,6 +674,7 @@ body {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .file-manager-actions button {
@@ -681,7 +682,20 @@ body {
   color: #f8fffd;
   background: rgba(16, 24, 32, 0.75);
   border-radius: 0.55rem;
-  padding: 0.42rem 0.58rem;
+  padding: 0;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.file-manager-actions button:hover:not(:disabled) {
+  background: rgba(0, 212, 146, 0.12);
+  border-color: rgba(0, 212, 146, 0.45);
 }
 
 .file-manager-actions button:disabled {
@@ -1034,8 +1048,8 @@ body {
 }
 
 .fm-pane-menu-toggle {
-  width: 1.62rem;
-  height: 1.62rem;
+  width: 1.6rem;
+  height: 1.6rem;
   border-radius: 0.45rem;
   border: 1px solid var(--color-dark-border-subtle);
   background: rgba(255, 255, 255, 0.04);

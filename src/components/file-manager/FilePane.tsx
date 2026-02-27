@@ -61,13 +61,13 @@ export function FilePane({
               type="button"
               className="file-refresh"
               onClick={() => onPathChange(dirname(state.path))}
-              title="Go up"
-              aria-label="Go up"
+              title="Go Up"
+              aria-label="Go Up"
             >
               <span className="file-icon-up" aria-hidden>↖</span>
             </button>
             <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh" aria-label="Refresh">
-              <span className="file-icon-refresh" aria-hidden>⟳</span>
+              <span className="file-icon-refresh" aria-hidden>↻</span>
             </button>
           </div>
         </div>
