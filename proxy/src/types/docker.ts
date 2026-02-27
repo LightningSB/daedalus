@@ -120,6 +120,7 @@ export type DockerExecWsData = {
   kind: "docker-exec";
   containerId: string;
   execSessionId: string;
+  startupTmuxSession?: string;
 };
 
 export type SshDockerExecWsData = {

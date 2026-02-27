@@ -453,35 +453,55 @@ export async function getTmuxSessions(containerId: string): Promise<TmuxStatus> 
 export async function attachExecWebSocket(
   wsData: DockerExecWsData,
   ws: Bun.ServerWebSocket<WsSessionData>,
+  onLog?: (message: string, meta?: Record<string, unknown>, level?: "debug" | "info" | "warn" | "error") => void,
 ): Promise<void> {
-  const { containerId, execSessionId } = wsData;
+  const { containerId, execSessionId, startupTmuxSession } = wsData;
 
   try {
     const container = docker.getContainer(containerId);
+
+    const shellCmd = startupTmuxSession
+      ? (() => {
+          const safeSession = startupTmuxSession.replace(/[^a-zA-Z0-9_.:-]/g, "");
+          return `export TERM=${"${TERM:-xterm-256color}"}; exec tmux new -A -s ${safeSession}`;
+        })()
+      : "export TERM=${TERM:-xterm-256color}; if command -v bash >/dev/null 2>&1; then exec bash -il; else exec sh -i; fi";
+
+    onLog?.("exec_create_start", { startupTmuxSession: startupTmuxSession ?? null, shellCmd });
+
     const exec = await container.exec({
       AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true,
       Tty: true,
       Env: ["TERM=xterm-256color", "COLORTERM=truecolor"],
-      Cmd: [
-        "/bin/sh",
-        "-lc",
-        "export TERM=${TERM:-xterm-256color}; if command -v bash >/dev/null 2>&1; then exec bash -il; else exec sh -i; fi",
-      ],
+      Cmd: ["/bin/sh", "-lc", shellCmd],
     });
+
+    onLog?.("exec_created");
 
     const stream = await (exec.start as (opts: Record<string, unknown>) => Promise<NodeJS.ReadWriteStream>)({
       hijack: true,
       stdin: true,
     });
 
+    onLog?.("exec_started");
+
     execSessions.set(execSessionId, { stream, exec });
 
     // Send ready before piping data to avoid clearing an already-rendered prompt on the client.
     ws.send(JSON.stringify({ type: "ready" }));
+    onLog?.("ready_sent");
+
+    let chunkCount = 0;
+    let totalBytes = 0;
 
     stream.on("data", (chunk: Buffer) => {
+      chunkCount += 1;
+      totalBytes += chunk.length;
+      if (chunkCount === 1) {
+        onLog?.("first_output_chunk", { bytes: chunk.length });
+      }
       try {
         ws.send(
           JSON.stringify({
@@ -496,6 +516,7 @@ export async function attachExecWebSocket(
 
     stream.on("end", () => {
       execSessions.delete(execSessionId);
+      onLog?.("stream_end", { chunkCount, totalBytes }, "warn");
       try {
         ws.send(JSON.stringify({ type: "closed" }));
         ws.close();
@@ -506,6 +527,7 @@ export async function attachExecWebSocket(
 
     stream.on("error", (err: Error) => {
       execSessions.delete(execSessionId);
+      onLog?.("stream_error", { error: err.message, chunkCount, totalBytes }, "error");
       try {
         ws.send(JSON.stringify({ type: "error", message: err.message }));
         ws.close();
@@ -513,9 +535,9 @@ export async function attachExecWebSocket(
         // ignore
       }
     });
-
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Exec failed";
+    onLog?.("attach_exception", { error: msg }, "error");
     ws.send(JSON.stringify({ type: "error", message: msg }));
     ws.close();
   }

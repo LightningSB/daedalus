@@ -1436,14 +1436,13 @@ function App() {
 
         const self = await apiClient.getDockerSelfContainer()
         const dockerTabId = `docker-local-tmux-${bind.id}-${Date.now()}`
-        const tmuxCmd = `tmux new -A -s ${target.tmuxSession}\r`
+        const wsUrl = `${apiClient.getContainerExecWsUrl(self.containerId)}?tmuxSession=${encodeURIComponent(target.tmuxSession)}`
         const nextTab: SessionTab = {
           id: dockerTabId,
           type: 'docker',
           title: `⚡ ${bind.title}`,
-          websocketUrl: apiClient.getContainerExecWsUrl(self.containerId),
+          websocketUrl: wsUrl,
           containerId: self.containerId,
-          initialInput: tmuxCmd,
         }
         setSessions((previous) => [nextTab, ...previous])
         setActiveSessionId(dockerTabId)

@@ -916,8 +916,14 @@ const server = Bun.serve<WsSessionData>({
       if (match) {
         const containerId = decodeURIComponent(match[1]);
         const execSessionId = randomUUID();
+        const url = new URL(request.url);
+        const startupTmuxSessionRaw = url.searchParams.get("tmuxSession")?.trim();
+        const startupTmuxSession = startupTmuxSessionRaw && /^[a-zA-Z0-9_.:-]{1,64}$/.test(startupTmuxSessionRaw)
+          ? startupTmuxSessionRaw
+          : undefined;
+
         const upgraded = serverInstance.upgrade(request, {
-          data: { kind: "docker-exec" as const, containerId, execSessionId },
+          data: { kind: "docker-exec" as const, containerId, execSessionId, startupTmuxSession },
         });
         if (upgraded) return undefined;
         return bad(request, new Error("WebSocket upgrade failed"), 400);
@@ -1208,7 +1214,16 @@ const server = Bun.serve<WsSessionData>({
           meta: { containerId: data.containerId, execSessionId: data.execSessionId },
         });
 
-        void dockerService.attachExecWebSocket(data, ws).then(() => {
+        void dockerService.attachExecWebSocket(
+          data,
+          ws,
+          (message, meta, level = "info") => logServerEvent({
+            level,
+            category: "docker-exec-ws",
+            message,
+            meta: { containerId: data.containerId, execSessionId: data.execSessionId, ...(meta ?? {}) },
+          }),
+        ).then(() => {
           void logServerEvent({
             category: "docker-exec-ws",
             message: "attach_completed",
