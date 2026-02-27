@@ -514,6 +514,45 @@ async function handleSshSessionDetail(
   return bad(request, new Error("Method not allowed"), 405);
 }
 
+function tmuxSessionName(value: string): string {
+  // Conservative allowlist for tmux session names.
+  return value.replace(/[^a-zA-Z0-9_.:-]/g, "");
+}
+
+async function cleanupTmuxBindTarget(userId: string, bind: TmuxBind): Promise<void> {
+  // Best-effort cleanup on delete so a removed sidebar bind doesn't leave stale tmux sessions.
+  if (bind.target.kind !== "local-tmux") return;
+
+  const sessionName = tmuxSessionName(bind.target.tmuxSession || "");
+  if (!sessionName) return;
+
+  try {
+    const proc = Bun.spawn(["tmux", "kill-session", "-t", sessionName], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await proc.exited;
+    await logServerEvent({
+      userId,
+      category: "tmux-bind",
+      message: "local_tmux_cleanup_attempted",
+      meta: { bindId: bind.id, tmuxSession: sessionName },
+    });
+  } catch (error) {
+    await logServerEvent({
+      userId,
+      level: "warn",
+      category: "tmux-bind",
+      message: "local_tmux_cleanup_failed",
+      meta: {
+        bindId: bind.id,
+        tmuxSession: sessionName,
+        error: error instanceof Error ? error.message : "unknown",
+      },
+    });
+  }
+}
+
 async function handleSshSessionFs(
   request: Request,
   userId: string,
@@ -1078,6 +1117,10 @@ const server = Bun.serve<WsSessionData>({
           const idx = binds.findIndex((b) => b.id === bindId);
           if (idx === -1) return bad(request, new Error("Bind not found"), 404);
           const [removed] = binds.splice(idx, 1);
+
+          // Best-effort target cleanup before removing bind record.
+          await cleanupTmuxBindTarget(userId, removed);
+
           await store.putTmuxBinds(userId, binds);
           broadcastUserEvent(userId, { type: "tmux-bind-deleted", bindId });
           return ok(request, { ok: true });

@@ -1470,16 +1470,29 @@ function App() {
     if (!confirmed) return
 
     try {
-      await apiClient.deleteTmuxBind(tab.bindId)
-      setSessions((prev) => prev.filter((s) => s.id !== tab.id))
-      if (activeSessionId === tab.id) {
-        setActiveSessionId(sessions.filter((s) => s.id !== tab.id)[0]?.id ?? null)
+      // Best effort: close the attached SSH session (if any) so we don't leave stale
+      // in-memory sessions behind after removing the bind.
+      if (tab.attachedSessionId) {
+        try {
+          await apiClient.closeSshSession(tab.attachedSessionId)
+        } catch {
+          // best effort
+        }
       }
+
+      await apiClient.deleteTmuxBind(tab.bindId)
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== tab.id && s.id !== tab.attachedSessionId)
+        if (activeSessionId === tab.id || activeSessionId === tab.attachedSessionId) {
+          setActiveSessionId(next[0]?.id ?? null)
+        }
+        return next
+      })
       setStatusLine(`Removed bind: ${tab.title}`)
     } catch (error) {
       setStatusLine(error instanceof ApiError ? error.message : 'Failed to remove bind.')
     }
-  }, [activeSessionId, apiClient, sessions])
+  }, [activeSessionId, apiClient])
 
   const handleVaultInit = useCallback(async () => {
     if (!vaultPassphrase.trim()) {
