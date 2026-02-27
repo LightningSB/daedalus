@@ -11,49 +11,39 @@ interface MobileRadialControlsProps {
   ctrlArmed: boolean;
 }
 
-// Minimal, scalable SVG Icons
-const IconCtrl = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6"/></svg>;
-const IconAlt = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h6l6 18h6"/><path d="M14 3h7"/></svg>;
-const IconKB = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>;
-const IconTS = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"/><circle cx="8" cy="12" r="2"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/></svg>;
-const IconZoom = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>;
-const IconBack = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>;
-const IconTab = () => <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12H3"/><path d="M15 6l6 6-6 6"/><path d="M3 6v12"/></svg>;
-const IconEsc = () => <span style={{fontSize: '12px', fontWeight: 'bold'}}>ESC</span>;
-
 const LAYERS = {
   top: [
-    { id: 'ctrl', label: 'Ctrl', icon: <IconCtrl/>, layer: 'ctrl', action: { action: 'ctrl' } },
-    { id: 'alt', label: 'Alt', icon: <IconAlt/>, layer: 'alt', action: { action: 'alt' } },
-    { id: 'esc', label: 'Esc', icon: <IconEsc/>, action: { sequence: '\u001b' } },
-    { id: 'tab', label: 'Tab', icon: <IconTab/>, action: { sequence: '\t' } },
-    { id: 'kb', label: 'KB', icon: <IconKB/>, action: { action: 'hideKeyboard' } },
-    { id: 'ts', label: 'Thumb', icon: <IconTS/>, localAction: 'toggleThumbstick' },
-    { id: 'zoom', label: 'Zoom', icon: <IconZoom/>, layer: 'zoom' },
+    { id: 'ctrl', label: '⌃', ariaLabel: 'Ctrl', layer: 'ctrl', action: { action: 'ctrl' } },
+    { id: 'alt', label: '⎇', ariaLabel: 'Alt', layer: 'alt', action: { action: 'alt' } },
+    { id: 'esc', label: '⎋', ariaLabel: 'Esc', action: { sequence: '\u001b' } },
+    { id: 'tab', label: '⇥', ariaLabel: 'Tab', action: { sequence: '\t' } },
+    { id: 'kb', label: '⌨', ariaLabel: 'Toggle Keyboard', action: { action: 'hideKeyboard' } },
+    { id: 'ts', label: '◉', ariaLabel: 'Toggle Thumbstick', localAction: 'toggleThumbstick' },
+    { id: 'zoom', label: '🔍', ariaLabel: 'Zoom Controls', layer: 'zoom' },
   ],
   ctrl: [
-    { id: 'back', label: 'Back', icon: <IconBack/>, layer: 'top' },
-    { id: 'ctrl-c', label: 'Ctrl+C', sequence: '\u0003' },
-    { id: 'ctrl-d', label: 'Ctrl+D', sequence: '\u0004' },
-    { id: 'ctrl-l', label: 'Ctrl+L', sequence: '\u000c' },
-    { id: 'ctrl-u', label: 'Ctrl+U', sequence: '\u0015' },
-    { id: 'ctrl-z', label: 'Ctrl+Z', sequence: '\u001a' },
-    { id: 'paste', label: 'Paste', action: { action: 'paste' } },
+    { id: 'back', label: '↩', ariaLabel: 'Back', layer: 'top' },
+    { id: 'ctrl-c', label: '⌃C', ariaLabel: 'Ctrl+C', sequence: '\u0003' },
+    { id: 'ctrl-d', label: '⌃D', ariaLabel: 'Ctrl+D', sequence: '\u0004' },
+    { id: 'ctrl-l', label: '⌃L', ariaLabel: 'Ctrl+L', sequence: '\u000c' },
+    { id: 'ctrl-u', label: '⌃U', ariaLabel: 'Ctrl+U', sequence: '\u0015' },
+    { id: 'ctrl-z', label: '⌃Z', ariaLabel: 'Ctrl+Z', sequence: '\u001a' },
+    { id: 'paste', label: '📋', ariaLabel: 'Paste', action: { action: 'paste' } },
   ],
   alt: [
-    { id: 'back', label: 'Back', icon: <IconBack/>, layer: 'top' },
-    { id: 'alt-b', label: 'Alt+B', sequence: '\u001bb' },
-    { id: 'alt-f', label: 'Alt+F', sequence: '\u001bf' },
-    { id: 'pgup', label: 'PgUp', sequence: '\u001b[5~' },
-    { id: 'pgdn', label: 'PgDn', sequence: '\u001b[6~' },
-    { id: 'home', label: 'Home', sequence: '\u001b[H' },
-    { id: 'end', label: 'End', sequence: '\u001b[F' },
+    { id: 'back', label: '↩', ariaLabel: 'Back', layer: 'top' },
+    { id: 'alt-b', label: '⎇B', ariaLabel: 'Alt+B', sequence: '\u001bb' },
+    { id: 'alt-f', label: '⎇F', ariaLabel: 'Alt+F', sequence: '\u001bf' },
+    { id: 'pgup', label: '⇞', ariaLabel: 'Page Up', sequence: '\u001b[5~' },
+    { id: 'pgdn', label: '⇟', ariaLabel: 'Page Down', sequence: '\u001b[6~' },
+    { id: 'home', label: '↖', ariaLabel: 'Home', sequence: '\u001b[H' },
+    { id: 'end', label: '↘', ariaLabel: 'End', sequence: '\u001b[F' },
   ],
   zoom: [
-    { id: 'back', label: 'Back', icon: <IconBack/>, layer: 'top' },
-    { id: 'zoom-in', label: 'A+', action: { action: 'fontUp' } },
-    { id: 'zoom-out', label: 'A-', action: { action: 'fontDown' } },
-    { id: 'zoom-reset', label: 'A=', action: { action: 'fontReset' } },
+    { id: 'back', label: '↩', ariaLabel: 'Back', layer: 'top' },
+    { id: 'zoom-in', label: '⊕', ariaLabel: 'Zoom In', action: { action: 'fontUp' } },
+    { id: 'zoom-out', label: '⊖', ariaLabel: 'Zoom Out', action: { action: 'fontDown' } },
+    { id: 'zoom-reset', label: '⊜', ariaLabel: 'Zoom Reset', action: { action: 'fontReset' } },
   ]
 };
 
@@ -275,6 +265,7 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
               <button
                 key={`${node.layerName}-${node.item.id}`}
                 type="button"
+                aria-label={node.item.ariaLabel || node.item.label}
                 className={`radial-node ${isActiveLayer ? 'visible' : ''} ${node.item.action?.action === 'ctrl' && ctrlArmed ? 'armed' : ''}`}
                 style={{
                   transform: isActiveLayer 
@@ -295,9 +286,12 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'none' }}>
-                  {node.item.icon}
                   {node.item.label && (
-                    <span style={{ fontSize: '10px', marginTop: '2px', opacity: 0.9, lineHeight: 1 }}>
+                    <span style={{ 
+                      fontSize: node.item.label.length <= 2 ? '22px' : '14px', 
+                      opacity: 0.9, 
+                      lineHeight: 1 
+                    }}>
                       {node.item.label}
                     </span>
                   )}

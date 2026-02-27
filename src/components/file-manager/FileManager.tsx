@@ -669,15 +669,15 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
             <span className="file-manager-sub">{headerSubtitle}</span>
           </div>
           <div className="file-manager-actions">
-            <button type="button" onClick={handleUploadClick} disabled={!sessionId}>Upload</button>
-            <button type="button" onClick={handleDownload} disabled={!downloadUrl}>Download</button>
-            <button type="button" onClick={handleNewFolder} disabled={!sessionId}>New Folder</button>
-            <button type="button" onClick={handleRename} disabled={!selectedEntry}>Rename</button>
-            <button type="button" onClick={handleDelete} disabled={!selectedEntry}>Delete</button>
-            <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>Close Pane</button>
+            <button type="button" onClick={handleUploadClick} disabled={!sessionId}>⇪ Upload</button>
+            <button type="button" onClick={handleDownload} disabled={!downloadUrl}>⇩ Download</button>
+            <button type="button" onClick={handleNewFolder} disabled={!sessionId}>📁 New Folder</button>
+            <button type="button" onClick={handleRename} disabled={!selectedEntry}>✎ Rename</button>
+            <button type="button" onClick={handleDelete} disabled={!selectedEntry}>🗑 Delete</button>
+            <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>✕ Close Pane</button>
             <button type="button" onClick={() => switchPaneByOffset(-1)} disabled={!canGoPrevPane}>◀</button>
             <button type="button" onClick={() => switchPaneByOffset(1)} disabled={!canGoNextPane}>▶</button>
-            <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>Refresh</button>
+            <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>↻ Refresh</button>
           </div>
         </div>
       )}
@@ -741,14 +741,14 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
                             </button>
                             {mobilePaneMenuOpen && (
                               <div className="fm-pane-menu" onClick={(event) => event.stopPropagation()}>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleUploadClick() }} disabled={!sessionId}>Upload</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleDownload() }} disabled={!downloadUrl}>Download</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleNewFolder() }} disabled={!sessionId}>New Folder</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleRename() }} disabled={!selectedEntry}>Rename</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleDelete() }} disabled={!selectedEntry}>Delete</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); closeActivePane() }} disabled={!activePane || panes.length <= 1}>Close Pane</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(-1) }} disabled={!canGoPrevPane}>Prev Pane</button>
-                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(1) }} disabled={!canGoNextPane}>Next Pane</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleUploadClick() }} disabled={!sessionId}>⇪ Upload</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleDownload() }} disabled={!downloadUrl}>⇩ Download</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleNewFolder() }} disabled={!sessionId}>📁 New Folder</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleRename() }} disabled={!selectedEntry}>✎ Rename</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleDelete() }} disabled={!selectedEntry}>🗑 Delete</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); closeActivePane() }} disabled={!activePane || panes.length <= 1}>✕ Close Pane</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(-1) }} disabled={!canGoPrevPane}>◀ Prev Pane</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(1) }} disabled={!canGoNextPane}>▶ Next Pane</button>
                               </div>
                             )}
                           </div>
