@@ -2,7 +2,8 @@ import Dockerode from "dockerode";
 import { readFile } from "node:fs/promises";
 import type { DockerContainerInfo, DockerContainerSummary, DockerExecWsData, DockerFileEntry, DockerFilePreview, TmuxSession, TmuxStatus, WsSessionData } from "../types/docker";
 
-const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
+const DOCKER_SOCKET_PATH = process.env.DOCKER_SOCKET_PATH ?? "/var/run/docker.sock";
+const docker = new Dockerode({ socketPath: DOCKER_SOCKET_PATH });
 
 // Active exec sessions: execSessionId → { stream, exec }
 const execSessions = new Map<
@@ -145,7 +146,8 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
   // would fail anyway.  Surface a clear, actionable error immediately.
   if (!(await isDockerAvailable())) {
     selfContainerError = new Error(
-      "Docker socket is not accessible (/var/run/docker.sock). " +
+      `Docker socket is not accessible (${DOCKER_SOCKET_PATH}). ` +
+      "Mount /var/run/docker.sock into the proxy container, or set DOCKER_SOCKET_PATH env var. " +
       "Set SELF_CONTAINER_ID env var to the proxy container's full Docker container ID to enable local-tmux attach.",
     );
     selfContainerResolved = true;

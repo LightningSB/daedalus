@@ -1,0 +1,50 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Required: Docker socket so the proxy can inspect/exec into containers
+      # and the local-tmux bind feature can attach tmux sessions in this container.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Optional: mount compose project directories at their host-absolute paths
+      # so dockerComposeService.ts can read the YAML files via readFileSync.
+      # Add one entry per compose project, matching the path reported by `docker compose ls`.
+      # Example:
+      # - /opt/myproject:/opt/myproject:ro
+
+    environment:
+      PORT: "8080"
+
+      # Required: MinIO object storage
+      MINIO_ENDPOINT: minio.wheelbase.io
+      MINIO_PORT: "443"
+      MINIO_USE_SSL: "true"
+      MINIO_ACCESS_KEY: wheelbase-admin
+      MINIO_SECRET_KEY: change-me
+      MINIO_BUCKET: daedalus
+
+      # Public app URL used in magic links
+      APP_ORIGIN: https://daedalus.wheelbase.io
+
+      # Telegram bot token for magic link DMs
+      TELEGRAM_BOT_TOKEN: "123456:replace-me"
+
+      # Comma-separated SSH host allowlist
+      SSH_ALLOWED_HOSTS: "34.186.124.156"
+
+      # Recommended: set the proxy's own Docker container ID explicitly.
+      # This bypasses auto-detection (which requires the socket to already work)
+      # and is the most reliable option in cgroup-v2 / Dokploy environments.
+      #
+      # How to find it after first deploy:
+      #   docker ps --filter name=daedalus-proxy --format '{{.ID}}'
+      # Then set the full 64-char ID (docker inspect --format '{{.Id}}' <short-id>).
+      #
+      # SELF_CONTAINER_ID: ""
+
+      # Override Docker socket path if non-standard (default: /var/run/docker.sock)
+      # DOCKER_SOCKET_PATH: /var/run/docker.sock
+
+    restart: unless-stopped
