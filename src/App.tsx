@@ -1615,7 +1615,7 @@ function App() {
             if (session.type === 'docker') {
               return (
                 <div key={session.id} className={`terminal-session ${session.id === activeSessionId ? 'active' : ''}`}>
-                  <ContainerExecTerminal wsUrl={session.websocketUrl} onClose={() => void closeSession(session.id)} />
+                  <ContainerExecTerminal wsUrl={session.websocketUrl} onClose={() => void closeSession(session.id)} apiClient={apiClient} containerId={session.containerId} />
                 </div>
               )
             }

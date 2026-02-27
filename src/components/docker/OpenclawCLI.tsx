@@ -11,6 +11,13 @@ type ApiClient = {
     onEvent: (event: TaskEvent) => void,
     signal?: AbortSignal,
   ) => Promise<number>
+  sendClientLog?: (input: {
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    category?: string
+    message: string
+    meta?: Record<string, unknown>
+    ts?: string
+  }) => Promise<void>
 }
 
 type Props = {
@@ -46,6 +53,7 @@ export function OpenclawCLI({ apiClient }: Props) {
   // Find openclaw-cli project
   useEffect(() => {
     setLoading(true)
+    const startedAt = Date.now()
     apiClient
       .getComposeProjects()
       .then((projects) => {
@@ -53,10 +61,33 @@ export function OpenclawCLI({ apiClient }: Props) {
           p.services.some((s) => s.name === 'openclaw-cli' || s.name.includes('openclaw')),
         )
         setProject(found ?? null)
-        if (!found) setError('openclaw-cli service not found in any compose project')
+        if (!found) {
+          const message = 'openclaw-cli service not found in any compose project'
+          setError(message)
+          void apiClient.sendClientLog?.({
+            level: 'warn',
+            category: 'openclaw',
+            message: 'service_not_found',
+            meta: { durationMs: Date.now() - startedAt, projectCount: projects.length },
+          })
+        } else {
+          void apiClient.sendClientLog?.({
+            level: 'info',
+            category: 'openclaw',
+            message: 'service_discovered',
+            meta: { project: found.name, service: found.services.find((s) => s.name === 'openclaw-cli' || s.name.includes('openclaw'))?.name, durationMs: Date.now() - startedAt },
+          })
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load projects')
+        const message = err instanceof Error ? err.message : 'Failed to load projects'
+        setError(message)
+        void apiClient.sendClientLog?.({
+          level: 'error',
+          category: 'openclaw',
+          message: 'projects_load_failed',
+          meta: { message, durationMs: Date.now() - startedAt },
+        })
       })
       .finally(() => setLoading(false))
   }, [apiClient])
@@ -84,6 +115,13 @@ export function OpenclawCLI({ apiClient }: Props) {
       ])
 
       try {
+        void apiClient.sendClientLog?.({
+          level: 'info',
+          category: 'openclaw',
+          message: 'command_start',
+          meta: { project: project.name, service: cliService.name, args },
+        })
+
         const code = await apiClient.streamComposeTask(
           project.name,
           project.configFiles[0],
@@ -104,12 +142,24 @@ export function OpenclawCLI({ apiClient }: Props) {
           ac.signal,
         )
         setExitCode(code)
+        void apiClient.sendClientLog?.({
+          level: code === 0 ? 'info' : 'warn',
+          category: 'openclaw',
+          message: 'command_finished',
+          meta: { project: project.name, service: cliService.name, args, exitCode: code },
+        })
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           setOutput((prev) => [
             ...prev,
             { kind: 'system', text: `Error: ${err.message}\n` },
           ])
+          void apiClient.sendClientLog?.({
+            level: 'error',
+            category: 'openclaw',
+            message: 'command_failed',
+            meta: { project: project.name, service: cliService.name, args, error: err.message },
+          })
         }
       } finally {
         setRunning(false)
@@ -122,7 +172,12 @@ export function OpenclawCLI({ apiClient }: Props) {
     abortRef.current?.abort()
     setRunning(false)
     setOutput((prev) => [...prev, { kind: 'system', text: '(Aborted)\n' }])
-  }, [])
+    void apiClient.sendClientLog?.({
+      level: 'warn',
+      category: 'openclaw',
+      message: 'command_aborted',
+    })
+  }, [apiClient])
 
   const handleCustomRun = useCallback(() => {
     const trimmed = customCmd.trim()

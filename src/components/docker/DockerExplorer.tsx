@@ -17,11 +17,28 @@ type DockerApiClient = {
   listDockerContainerFiles: (id: string, path: string) => Promise<DockerFileEntry[]>
   previewDockerContainerFile: (id: string, path: string, limit?: number) => Promise<DockerFilePreview>
   getContainerExecWsUrl: (containerId: string) => string
+  sendClientLog?: (input: {
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    category?: string
+    message: string
+    meta?: Record<string, unknown>
+    ts?: string
+  }) => Promise<void>
 }
 
 type Props = {
   apiClient: DockerApiClient
   onOpenExec?: (containerId: string, containerName: string) => void
+}
+
+function logClient(
+  apiClient: DockerApiClient,
+  level: 'debug' | 'info' | 'warn' | 'error',
+  category: string,
+  message: string,
+  meta?: Record<string, unknown>,
+) {
+  void apiClient.sendClientLog?.({ level, category, message, meta })
 }
 
 // ---------------------------------------------------------------------------
@@ -31,9 +48,11 @@ type Props = {
 type TerminalProps = {
   wsUrl: string
   onClose: () => void
+  apiClient?: DockerApiClient
+  containerId?: string
 }
 
-export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
+export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -59,9 +78,14 @@ export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
 
     const ws = new WebSocket(wsUrl)
     socketRef.current = ws
+    const connectedAt = Date.now()
+    let firstOutputLogged = false
 
     ws.onopen = () => {
       term.writeln('\x1b[2m[Connected to container exec...]\x1b[0m')
+      if (apiClient) {
+        logClient(apiClient, 'info', 'docker-terminal', 'ws_open', { containerId, wsUrl })
+      }
     }
 
     ws.onmessage = (event) => {
@@ -76,10 +100,19 @@ export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
           const bytes = new Uint8Array(binary.length)
           for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
           term.write(bytes)
+          if (!firstOutputLogged && apiClient) {
+            firstOutputLogged = true
+            logClient(apiClient, 'info', 'docker-terminal', 'first_output', {
+              containerId,
+              sinceOpenMs: Date.now() - connectedAt,
+            })
+          }
         } else if (msg.type === 'closed') {
           term.writeln('\r\n\x1b[2m[Session closed]\x1b[0m')
+          if (apiClient) logClient(apiClient, 'info', 'docker-terminal', 'ws_closed', { containerId })
         } else if (msg.type === 'error') {
           term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`)
+          if (apiClient) logClient(apiClient, 'error', 'docker-terminal', 'ws_error_message', { containerId, message: msg.message })
         } else if (msg.type === 'ready') {
           if (ws.readyState === WebSocket.OPEN && termRef.current) {
             ws.send(JSON.stringify({
@@ -87,6 +120,13 @@ export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
               cols: termRef.current.cols,
               rows: termRef.current.rows,
             }))
+            if (apiClient) {
+              logClient(apiClient, 'info', 'docker-terminal', 'ready_resize_sent', {
+                containerId,
+                cols: termRef.current.cols,
+                rows: termRef.current.rows,
+              })
+            }
           }
         }
       } catch {
@@ -96,10 +136,12 @@ export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
 
     ws.onclose = () => {
       term.writeln('\r\n\x1b[2m[Connection closed]\x1b[0m')
+      if (apiClient) logClient(apiClient, 'warn', 'docker-terminal', 'ws_onclose', { containerId })
     }
 
     ws.onerror = () => {
       term.writeln('\r\n\x1b[31m[WebSocket error]\x1b[0m')
+      if (apiClient) logClient(apiClient, 'error', 'docker-terminal', 'ws_onerror', { containerId })
     }
 
     term.onData((data) => {
@@ -535,7 +577,7 @@ function ContainerDetail({ container, apiClient, onClose, onOpenExec }: DetailPr
         )}
 
         {view === 'terminal' && (
-          <ContainerExecTerminal wsUrl={execWsUrl} onClose={() => setView('overview')} />
+          <ContainerExecTerminal wsUrl={execWsUrl} onClose={() => setView('overview')} apiClient={apiClient} containerId={container.id} />
         )}
       </div>
     </div>
@@ -558,18 +600,36 @@ export function DockerExplorer({ apiClient, onOpenExec }: Props) {
     async (all: boolean) => {
       setLoading(true)
       setError(null)
+      const startedAt = Date.now()
       try {
         const ok = await apiClient.checkDockerHealth()
         setAvailable(ok)
+        logClient(apiClient, ok ? 'info' : 'warn', 'docker-health', 'health_checked', {
+          available: ok,
+          all,
+          durationMs: Date.now() - startedAt,
+        })
         if (!ok) {
           setContainers([])
+          logClient(apiClient, 'warn', 'docker-health', 'health_unavailable', { all })
           return
         }
         const list = await apiClient.listDockerContainers(all)
         setContainers(list)
+        logClient(apiClient, 'info', 'docker-health', 'containers_loaded', {
+          all,
+          count: list.length,
+          durationMs: Date.now() - startedAt,
+        })
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Docker unavailable')
+        const message = err instanceof Error ? err.message : 'Docker unavailable'
+        setError(message)
         setAvailable(false)
+        logClient(apiClient, 'error', 'docker-health', 'refresh_failed', {
+          all,
+          message,
+          durationMs: Date.now() - startedAt,
+        })
       } finally {
         setLoading(false)
       }

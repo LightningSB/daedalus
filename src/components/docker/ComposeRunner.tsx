@@ -11,6 +11,13 @@ type ComposeApiClient = {
     onEvent: (event: TaskEvent) => void,
     signal?: AbortSignal,
   ) => Promise<number>
+  sendClientLog?: (input: {
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    category?: string
+    message: string
+    meta?: Record<string, unknown>
+    ts?: string
+  }) => Promise<void>
 }
 
 type Props = {
@@ -171,11 +178,25 @@ export function ComposeRunner({ apiClient }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
+    const startedAt = Date.now()
     try {
       const list = await apiClient.getComposeProjects()
       setProjects(list)
+      void apiClient.sendClientLog?.({
+        level: 'info',
+        category: 'compose',
+        message: 'projects_loaded',
+        meta: { count: list.length, durationMs: Date.now() - startedAt },
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load compose projects')
+      const message = err instanceof Error ? err.message : 'Failed to load compose projects'
+      setError(message)
+      void apiClient.sendClientLog?.({
+        level: 'error',
+        category: 'compose',
+        message: 'projects_load_failed',
+        meta: { message, durationMs: Date.now() - startedAt },
+      })
     } finally {
       setLoading(false)
     }
@@ -228,7 +249,14 @@ export function ComposeRunner({ apiClient }: Props) {
       }
 
       try {
-        await apiClient.streamComposeTask(
+        void apiClient.sendClientLog?.({
+          level: 'info',
+          category: 'compose',
+          message: 'task_start',
+          meta: { projectName, service, args },
+        })
+
+        const finalCode = await apiClient.streamComposeTask(
           projectName,
           configFile,
           service,
@@ -244,9 +272,22 @@ export function ComposeRunner({ apiClient }: Props) {
           },
           ac.signal,
         )
+
+        void apiClient.sendClientLog?.({
+          level: finalCode === 0 ? 'info' : 'warn',
+          category: 'compose',
+          message: 'task_finished',
+          meta: { projectName, service, args, exitCode: finalCode },
+        })
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           appendLine('system', `Error: ${err.message}\n`)
+          void apiClient.sendClientLog?.({
+            level: 'error',
+            category: 'compose',
+            message: 'task_failed',
+            meta: { projectName, service, args, error: err.message },
+          })
         }
       }
 
@@ -274,7 +315,13 @@ export function ComposeRunner({ apiClient }: Props) {
       }
       return next
     })
-  }, [])
+    void apiClient.sendClientLog?.({
+      level: 'warn',
+      category: 'compose',
+      message: 'task_aborted',
+      meta: { projectName, service },
+    })
+  }, [apiClient])
 
   const cliProjects = projects.filter((p) => p.services.length > 0)
 
