@@ -1043,9 +1043,10 @@ function App() {
   // The SSH session to use for Docker/Compose/Openclaw operations.
   // Prefer the currently active SSH session; fall back to the first connected SSH session.
   const activeSshSessionId = useMemo(() => {
-    if (activeSession?.type === 'ssh') return activeSessionId
+    const activeTab = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null
+    if (activeTab?.type === 'ssh') return activeSessionId
     return sessions.find((s) => s.type === 'ssh')?.id ?? null
-  }, [activeSession, activeSessionId, sessions])
+  }, [activeSessionId, sessions])
 
   // Session-scoped Docker API client — wires Docker ops through the active SSH host.
   const sshDockerApiClient = useMemo(() => {

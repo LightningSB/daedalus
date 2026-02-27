@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import net, { type AddressInfo } from "node:net";
 import { posix as pathPosix } from "node:path";
-import { Client, type ClientChannel, type ConnectConfig, type OpenMode, type SFTPWrapper, type Stats } from "ssh2";
+import { Client, type ClientChannel, type ConnectConfig, type ExecOptions, type OpenMode, type SFTPWrapper, type Stats } from "ssh2";
 import socksv5 from "socksv5";
 import { MinioStore, type AuditEvent, type KnownHostsMap, type StoredSecret } from "../storage/minioStore";
 import { VaultService } from "./vaultService";
@@ -1380,9 +1380,12 @@ export class SshService {
 
     try {
       const channel = await new Promise<ClientChannel>((resolve, reject) => {
+        const execOptions: ExecOptions = {
+          pty: { term: "xterm-256color", rows, cols, height: rows, width: cols },
+        };
         session.conn.exec(
           cmd,
-          { pty: { term: "xterm-256color", rows, cols, height: rows, width: cols } } as Parameters<Client["exec"]>[1],
+          execOptions,
           (err: Error | undefined, stream: ClientChannel) => {
             if (err || !stream) {
               reject(err ?? new Error("Failed to open exec channel"));
