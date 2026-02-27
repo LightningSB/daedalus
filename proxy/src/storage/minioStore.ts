@@ -1,6 +1,7 @@
 import { Client as MinioClient } from "minio";
 import { Readable } from "node:stream";
 import type { AppConfig } from "../config";
+import type { TmuxBind } from "../types/tmuxBind";
 
 export type StoredVault = {
   version: 1;
@@ -212,6 +213,18 @@ export class MinioStore {
     const day = event.ts.slice(0, 10);
     const key = `audit/${day}.jsonl`;
     await this.appendJsonLine(key, event);
+  }
+
+  tmuxBindsKey(userId: string): string {
+    return `users/${encodeURIComponent(userId)}/tmux-binds.json`;
+  }
+
+  async getTmuxBinds(userId: string): Promise<TmuxBind[]> {
+    return (await this.getJson<TmuxBind[]>(this.tmuxBindsKey(userId))) ?? [];
+  }
+
+  async putTmuxBinds(userId: string, binds: TmuxBind[]): Promise<void> {
+    await this.putJson(this.tmuxBindsKey(userId), binds);
   }
 
   async appendClientLogEvent(event: ClientLogEvent): Promise<void> {

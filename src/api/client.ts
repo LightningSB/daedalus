@@ -688,6 +688,32 @@ export function createApiClient(userId: string) {
 
       return exitCode
     },
+
+    // -------------------------------------------------------------------------
+    // Tmux Bind API
+    // -------------------------------------------------------------------------
+
+    async listTmuxBinds(): Promise<TmuxBind[]> {
+      const data = await requestJson<{ binds?: unknown[] }>('/tmux/binds')
+      return (Array.isArray(data.binds) ? data.binds : []) as TmuxBind[]
+    },
+
+    async createTmuxBind(payload: CreateTmuxBindRequest): Promise<CreateTmuxBindResponse> {
+      return requestJson<CreateTmuxBindResponse>('/tmux/binds', {
+        method: 'POST',
+        body: payload,
+      })
+    },
+
+    async deleteTmuxBind(bindId: string): Promise<void> {
+      await requestJson(`/tmux/binds/${encodeURIComponent(bindId)}`, {
+        method: 'DELETE',
+      })
+    },
+
+    getEventsWebsocketUrl(): string {
+      return wsUrlFor(`${base}/events`)
+    },
   }
 }
 
@@ -797,4 +823,30 @@ export type ClientLogInput = {
   message: string
   meta?: Record<string, unknown>
   ts?: string
+}
+
+export type TmuxBindTarget =
+  | { kind: 'ssh-host'; hostId: string; tmuxSession: string }
+  | { kind: 'ssh-host-docker'; hostId: string; containerId: string; tmuxSession: string }
+  | { kind: 'ssh-raw'; rawCommand: string; tmuxSession: string }
+
+export type TmuxBind = {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  target: TmuxBindTarget
+  lastOpenedAt?: string
+  autoFocus?: boolean
+}
+
+export type CreateTmuxBindRequest = {
+  title: string
+  target: TmuxBindTarget
+  autoFocus?: boolean
+}
+
+export type CreateTmuxBindResponse = {
+  bind: TmuxBind
+  viewerUrl: string
 }

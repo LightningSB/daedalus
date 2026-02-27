@@ -8,7 +8,9 @@ import * as dockerComposeService from "./services/dockerComposeService";
 import { SshDockerService } from "./services/sshDockerService";
 import { MagicLinkService } from "./services/magicLinkService";
 import { getVaultToken, json, readJson } from "./utils/http";
+import { verifyTelegramInitData } from "./utils/telegramAuth";
 import type { WsSessionData } from "./types/docker";
+import type { TmuxBind } from './types/tmuxBind';
 
 const config = loadConfig();
 const store = new MinioStore(config.minio);
@@ -19,12 +21,54 @@ const sshService = new SshService(store, vault, config.sshAllowedHosts);
 const sshDockerService = new SshDockerService(sshService);
 const magicLinkService = new MagicLinkService(store, config);
 
+// User-scoped event subscribers (for realtime push)
+const userEventSockets = new Map<string, Set<Bun.ServerWebSocket<unknown>>>();
+
+function broadcastUserEvent(userId: string, event: unknown): void {
+  const sockets = userEventSockets.get(userId);
+  if (!sockets) return;
+  const payload = JSON.stringify(event);
+  for (const ws of sockets) {
+    try { ws.send(payload); } catch { /* ignore closed */ }
+  }
+}
+
+/**
+ * Verifies the x-telegram-init-data header against the path :userId.
+ * Returns null if verification passes or if no bot token is configured (development mode).
+ * Returns an error Response if the userId does not match the verified identity.
+ */
+function requireTelegramUserId(request: Request, pathUserId: string): Response | null {
+  const botToken = config.telegram.botToken;
+  if (!botToken) {
+    // No bot token configured — skip verification (development mode)
+    return null;
+  }
+
+  const initData = request.headers.get("x-telegram-init-data");
+  if (!initData) {
+    // No initData header — for now allow (graceful degradation for CLI callers)
+    return null;
+  }
+
+  const result = verifyTelegramInitData(initData, botToken);
+  if (!result.ok) {
+    return withCors(json({ error: `Unauthorized: ${result.reason}` }, 401), request);
+  }
+
+  if (result.userId !== pathUserId) {
+    return withCors(json({ error: "Forbidden: userId mismatch" }, 403), request);
+  }
+
+  return null;
+}
+
 function corsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get("origin") ?? "*";
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,authorization,x-vault-token",
+    "access-control-allow-headers": "content-type,authorization,x-vault-token,x-telegram-init-data",
   };
 }
 
@@ -872,6 +916,75 @@ const server = Bun.serve<WsSessionData>({
         });
       }
 
+      // -----------------------------------------------------------------------
+      // Tmux Bind routes: /api/users/:userId/tmux/binds
+      // -----------------------------------------------------------------------
+      match = pathname.match(/^\/api\/users\/([^/]+)\/tmux\/binds$/);
+      if (match) {
+        const userId = decodeURIComponent(match[1]);
+        const authErr = requireTelegramUserId(request, userId);
+        if (authErr) return authErr;
+
+        // GET - list all binds
+        if (request.method === "GET") {
+          const binds = await store.getTmuxBinds(userId);
+          return ok(request, { binds });
+        }
+
+        // POST - create a new bind
+        if (request.method === "POST") {
+          const body = await readJson<{ title: string; target: TmuxBind['target']; autoFocus?: boolean }>(request);
+          if (!body.title || !body.target) {
+            return bad(request, new Error("title and target are required"), 400);
+          }
+          const binds = await store.getTmuxBinds(userId);
+          const now = new Date().toISOString();
+          const bind: TmuxBind = {
+            id: `bind-${randomUUID()}`,
+            title: body.title,
+            createdAt: now,
+            updatedAt: now,
+            target: body.target,
+            autoFocus: body.autoFocus,
+          };
+          binds.push(bind);
+          await store.putTmuxBinds(userId, binds);
+          const viewerUrl = `${config.appOrigin}/#/bind/${bind.id}`;
+          broadcastUserEvent(userId, { type: "tmux-bind-created", bind });
+          return ok(request, { bind, viewerUrl }, 201);
+        }
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/tmux\/binds\/([^/]+)$/);
+      if (match) {
+        const userId = decodeURIComponent(match[1]);
+        const bindId = decodeURIComponent(match[2]);
+        const authErr = requireTelegramUserId(request, userId);
+        if (authErr) return authErr;
+
+        // DELETE - remove a bind
+        if (request.method === "DELETE") {
+          const binds = await store.getTmuxBinds(userId);
+          const idx = binds.findIndex((b) => b.id === bindId);
+          if (idx === -1) return bad(request, new Error("Bind not found"), 404);
+          const [removed] = binds.splice(idx, 1);
+          await store.putTmuxBinds(userId, binds);
+          broadcastUserEvent(userId, { type: "tmux-bind-deleted", bindId });
+          return ok(request, { ok: true });
+        }
+      }
+
+      // User events WebSocket: /api/users/:userId/events
+      match = pathname.match(/^\/api\/users\/([^/]+)\/events$/);
+      if (match) {
+        const userId = decodeURIComponent(match[1]);
+        const upgraded = serverInstance.upgrade(request, {
+          data: { kind: "user-events" as const, userId },
+        });
+        if (upgraded) return undefined;
+        return bad(request, new Error("WebSocket upgrade failed"), 400);
+      }
+
       return bad(request, new Error("Not found"), 404);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected server error";
@@ -904,6 +1017,12 @@ const server = Bun.serve<WsSessionData>({
           data.execSessionId,
           ws,
         );
+      } else if (data.kind === "user-events") {
+        const { userId } = data;
+        if (!userEventSockets.has(userId)) {
+          userEventSockets.set(userId, new Set());
+        }
+        userEventSockets.get(userId)!.add(ws);
       }
     },
     message(ws, message) {
@@ -961,6 +1080,12 @@ const server = Bun.serve<WsSessionData>({
         dockerService.detachExecWebSocket(data.execSessionId);
       } else if (data.kind === "ssh-docker-exec") {
         sshService.detachSshExecWebSocket(data.execSessionId);
+      } else if (data.kind === "user-events") {
+        const sockets = userEventSockets.get(data.userId);
+        if (sockets) {
+          sockets.delete(ws);
+          if (sockets.size === 0) userEventSockets.delete(data.userId);
+        }
       }
     },
   },
