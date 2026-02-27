@@ -463,7 +463,12 @@ export async function attachExecWebSocket(
       AttachStdout: true,
       AttachStderr: true,
       Tty: true,
-      Cmd: ["/bin/sh", "-c", "(bash 2>/dev/null) || sh"],
+      Env: ["TERM=xterm-256color", "COLORTERM=truecolor"],
+      Cmd: [
+        "/bin/sh",
+        "-lc",
+        "export TERM=${TERM:-xterm-256color}; if command -v bash >/dev/null 2>&1; then exec bash -il; else exec sh -i; fi",
+      ],
     });
 
     const stream = await (exec.start as (opts: Record<string, unknown>) => Promise<NodeJS.ReadWriteStream>)({
