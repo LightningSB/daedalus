@@ -40,10 +40,37 @@ Target variants:
 ## Usage workflow
 
 1) Choose target user id (default `345351719`)
-2) Create bind via POST
+2) Create bind via POST (or script)
 3) Return `bind` and `viewerUrl`
 4) Optionally list binds to verify
 5) Optionally delete outdated binds
+
+## Helper script
+
+Use the bundled helper script:
+
+`skills/telegram-user-bind/scripts/create-bind.sh`
+
+Quick examples:
+
+```bash
+# Create bind (default user 345351719)
+bash skills/telegram-user-bind/scripts/create-bind.sh create \
+  --title "Main Shell" \
+  --kind ssh-host \
+  --host-id host-123 \
+  --tmux-session main
+
+# List binds
+bash skills/telegram-user-bind/scripts/create-bind.sh list
+
+# Delete bind
+bash skills/telegram-user-bind/scripts/create-bind.sh delete --bind-id bind-abc123
+```
+
+Optional environment overrides:
+- `DAEDALUS_API_BASE` (default: `https://api.daedalus.wheelbase.io/api`)
+- `DAEDALUS_AUTH_HEADER` (e.g. `"Authorization: Bearer <token>"`)
 
 ## Example requests
 
