@@ -64,20 +64,16 @@ const ARROW_ACTIONS = {
   right: { label: '→', sequence: '\u001b[C' },
 };
 
-const calculateNodes = (items: any[]) => {
-  const maxPerRing = 5;
+const calculateNodes = (items: any[], layerName: string) => {
   return items.map((item, i) => {
-    const ring = Math.floor(i / maxPerRing);
-    const ringIndex = i % maxPerRing;
-    const ringNodesCount = Math.min(items.length - ring * maxPerRing, maxPerRing);
+    const isTop = layerName === 'top';
+    const spacingX = 58; // Horizontal spacing between nodes
+    const spacingY = 58; // Vertical spacing for nested layers
     
-    const ringRadius = 85 + ring * 55;
-    const angleStep = ringNodesCount > 1 ? 90 / (ringNodesCount - 1) : 0;
-    const angle = 180 + (ringIndex * angleStep);
-    
-    const rad = (angle * Math.PI) / 180;
-    const x = Math.cos(rad) * ringRadius;
-    const y = Math.sin(rad) * ringRadius;
+    // Top-level controls expand horizontally to the LEFT.
+    // Second-level controls appear ABOVE that top-level row, also to the LEFT.
+    const x = -spacingX * (i + 1);
+    const y = isTop ? 0 : -spacingY;
     
     return { item, x, y, ringIndex: i };
   });
@@ -112,7 +108,7 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
   const allNodes = useMemo(() => {
     const nodes: any[] = [];
     Object.entries(LAYERS).forEach(([layerName, items]) => {
-      const calculated = calculateNodes(items);
+      const calculated = calculateNodes(items, layerName);
       calculated.forEach(calc => nodes.push({ ...calc, layerName }));
     });
     return nodes;
@@ -145,6 +141,13 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
       return;
     }
 
+    if (!node.layer) {
+      // Top-level nodes without a layer (Esc, Tab, KB, Thumb) fire immediately
+      fireAction(node);
+      return;
+    }
+
+    // Top-level nodes WITH a layer (Ctrl, Alt, Zoom)
     if (pendingClickId === node.id) {
       // It's a double click!
       if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
@@ -157,11 +160,9 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
       
       clickTimeoutRef.current = window.setTimeout(() => {
         setPendingClickId(null);
-        // On timeout (single click confirmed), open nested layer if it exists
-        if (node.layer) {
-          setActiveLayer(node.layer);
-        }
-      }, 300);
+        // On timeout (single click confirmed), open nested layer
+        setActiveLayer(node.layer);
+      }, 250);
     }
   }, [pendingClickId, fireAction]);
 
@@ -283,9 +284,14 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
                   visibility: isActiveLayer ? 'visible' : 'hidden',
                   transitionDelay: isActiveLayer ? `${node.ringIndex * 0.02}s` : '0s'
                 }}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleNodeClick(node.item);
+                }}
                 onClick={(e) => {
                   e.preventDefault();
-                  handleNodeClick(node.item);
+                  e.stopPropagation();
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'none' }}>
@@ -303,7 +309,15 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
           <button 
             type="button"
             className={`radial-fab ${isOpen ? 'open' : ''}`}
-            onClick={toggleMenu}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleMenu();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             aria-label="Toggle keyboard shortcuts"
           >
             +
