@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  participant U as Simon
+  participant TG as Telegram
+  participant A as "OpenClaw Agent"
+  participant P as "daedalus-proxy"
+  participant M as MinIO
+  participant W as "Daedalus Web UI"
+
+  U->>TG: "bind tmux session XYZ"
+  TG->>A: message
+  A->>P: POST /tmux/binds {target, title}
+  P->>M: put users/<tgUserId>/tmux-binds.json
+  P-->>A: {bindId, viewerUrl}
+
+  Note over P,W: If Web UI is open
+  P-->>W: WS /events: tmux-bind-created {bind}
+  W->>W: Insert sidebar tab for bind
+  W->>U: (optional) highlight / toast

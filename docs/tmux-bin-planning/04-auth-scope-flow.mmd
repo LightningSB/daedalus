@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph Browser[Browser]
+    UI[Daedalus Web UI]
+    INIT["Telegram initData (signed)"]
+  end
+
+  subgraph Proxy[daedalus-proxy]
+    V[Verify initData signature]
+    UID[Derive tgUserId]
+    ACL[Authorize request]
+  end
+
+  subgraph Storage[MinIO]
+    BIND[users/<tgUserId>/tmux-binds.json]
+    HOSTS[users/<tgUserId>/ssh-hosts.json]
+    VAULT[users/<tgUserId>/vault.json]
+  end
+
+  UI --> INIT --> V --> UID --> ACL
+  ACL -->|read/write| BIND
+  ACL -->|read| HOSTS
+  ACL -->|decrypt secrets w/ vault token| VAULT

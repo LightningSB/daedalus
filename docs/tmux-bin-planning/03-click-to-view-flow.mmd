@@ -1,0 +1,10 @@
+flowchart TD
+  A["Sidebar item: tmux bind"] --> B{User clicks tab?}
+  B -- no --> Z[Do nothing]
+  B -- yes --> C[Resolve bind target]
+
+  C --> D["POST /ssh/sessions<br/>rawCommand or hostId"]
+  D --> E["Open WS /ssh/sessions/:id/ws"]
+  E --> F["Send input:<br/>docker exec -it CONTAINER tmux new -A -s XYZ"]
+  F --> G["Proxy streams PTY bytes"]
+  G --> H["Web xterm renders tmux"]

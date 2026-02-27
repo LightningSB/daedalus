@@ -1,0 +1,35 @@
+flowchart LR
+  subgraph Telegram[Telegram]
+    U[Simon]
+    TG[Telegram Chat]
+  end
+
+  subgraph OpenClaw[OpenClaw]
+    A["Agent (Chaim)"]
+    S["Skill: tmux-bind"]
+  end
+
+  subgraph Daedalus[Daedalus]
+    UI["Web UI (xterm.js)"]
+    P["daedalus-proxy (Bun)"]
+    EV["WS /events"]
+    API["REST /tmux/binds"]
+    M["MinIO (binds + vault + hosts)"]
+  end
+
+  subgraph GCP["GCP VM"]
+    SSHD[sshd]
+    D[docker]
+    C["Target container"]
+    T[tmux]
+  end
+
+  U --> TG
+  TG --> A
+  A --> S
+  S -->|POST bind| API --> P --> M
+  P --> EV --> UI
+
+  UI -->|"create SSH session + WS"| P -->|ssh2| SSHD
+  SSHD --> D --> C --> T
+  UI <-->|"bytes (pty)"| P
