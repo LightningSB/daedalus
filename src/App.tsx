@@ -1293,7 +1293,7 @@ function App() {
     let cancelled = false
     let timer: number | null = null
 
-    if (!activeSessionId) {
+    if (!activeSessionId || activeSession?.type !== 'ssh') {
       setTmuxStatus(null)
       return
     }
@@ -1331,15 +1331,15 @@ function App() {
       if (timer) window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [activeSessionId, apiClient])
+  }, [activeSession?.type, activeSessionId, apiClient])
 
   const tmuxLabel = useMemo(() => {
-    if (!activeSessionId || !tmuxStatus) return 'tmux: …'
+    if (!activeSessionId || activeSession?.type !== 'ssh' || !tmuxStatus) return 'tmux: …'
     if (tmuxStatus.status === 'not-installed') return 'tmux: not installed'
     if (tmuxStatus.status === 'no-server') return 'tmux: no sessions'
     if (tmuxStatus.status === 'error') return 'tmux: error'
     return `tmux: ${tmuxStatus.sessions.length}`
-  }, [activeSessionId, tmuxStatus])
+  }, [activeSession?.type, activeSessionId, tmuxStatus])
 
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
@@ -1506,7 +1506,7 @@ function App() {
         </div>
 
         <div className="session-row">
-          {activeSessionId && (
+          {activeSessionId && activeSession?.type === 'ssh' && (
             <div className="tmux-pill-wrap">
               <button
                 type="button"
