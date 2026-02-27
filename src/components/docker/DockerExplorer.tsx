@@ -210,6 +210,7 @@ function ContainerFiles({ containerId, apiClient, onClose, isMobile = false }: F
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false)
 
   const loadDir = useCallback(
     async (dirPath: string) => {
@@ -217,6 +218,7 @@ function ContainerFiles({ containerId, apiClient, onClose, isMobile = false }: F
       setError(null)
       setPreview(null)
       setSelectedPath(null)
+      setMobilePreviewOpen(false)
       try {
         const result = await apiClient.listDockerContainerFiles(containerId, dirPath)
         setEntries(result)
@@ -243,6 +245,7 @@ function ContainerFiles({ containerId, apiClient, onClose, isMobile = false }: F
       setSelectedPath(entry.path)
       setPreviewLoading(true)
       setPreview(null)
+      if (isMobile) setMobilePreviewOpen(true)
       try {
         const data = await apiClient.previewDockerContainerFile(containerId, entry.path)
         setPreview(data)
@@ -305,29 +308,38 @@ function ContainerFiles({ containerId, apiClient, onClose, isMobile = false }: F
       {error && <p className="docker-error">{error}</p>}
 
       <div className="docker-files-body">
-        <div className="docker-files-list">
-          {loading && <p className="docker-hint">Loading…</p>}
-          {!loading && entries.length === 0 && <p className="docker-hint">Empty directory</p>}
-          {entries.map((entry) => (
-            <button
-              key={entry.path}
-              type="button"
-              className={`docker-file-row${selectedPath === entry.path ? ' selected' : ''}`}
-              onClick={() => void handleEntry(entry)}
-            >
-              <span className="docker-file-icon">
-                {entry.type === 'dir' ? '📁' : entry.type === 'symlink' ? '🔗' : '📄'}
-              </span>
-              <span className="docker-file-name">{entry.name}</span>
-              <span className="docker-file-size">
-                {entry.type !== 'dir' ? formatBytes(entry.size) : ''}
-              </span>
-            </button>
-          ))}
-        </div>
+        {(!isMobile || !mobilePreviewOpen) && (
+          <div className="docker-files-list">
+            {loading && <p className="docker-hint">Loading…</p>}
+            {!loading && entries.length === 0 && <p className="docker-hint">Empty directory</p>}
+            {entries.map((entry) => (
+              <button
+                key={entry.path}
+                type="button"
+                className={`docker-file-row${selectedPath === entry.path ? ' selected' : ''}`}
+                onClick={() => void handleEntry(entry)}
+              >
+                <span className="docker-file-icon">
+                  {entry.type === 'dir' ? '📁' : entry.type === 'symlink' ? '🔗' : '📄'}
+                </span>
+                <span className="docker-file-name">{entry.name}</span>
+                <span className="docker-file-size">
+                  {entry.type !== 'dir' ? formatBytes(entry.size) : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
-        {(previewLoading || preview) && (
+        {(previewLoading || preview) && (!isMobile || mobilePreviewOpen) && (
           <div className="docker-file-preview">
+            {isMobile && (
+              <div className="docker-preview-mobile-header">
+                <button type="button" className="docker-action-btn" onClick={() => setMobilePreviewOpen(false)}>
+                  ← Back to files
+                </button>
+              </div>
+            )}
             {previewLoading && <p className="docker-hint">Loading preview…</p>}
             {preview && !previewLoading && (
               <>

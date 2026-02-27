@@ -909,21 +909,48 @@ body {
   background: rgba(255, 255, 255, 0.04);
   width: 1.6rem;
   height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
-.file-breadcrumbs {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
+.file-refresh:hover {
+  border-color: rgba(0, 212, 146, 0.45);
+  background: rgba(0, 212, 146, 0.12);
 }
 
-.breadcrumb {
+.file-icon-refresh,
+.file-icon-up {
+  font-size: 0.82rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.file-path-display {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.38rem;
   border: 1px solid var(--color-dark-border-subtle);
   border-radius: 0.45rem;
-  color: inherit;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0.2rem 0.4rem;
+  padding: 0.24rem 0.38rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.file-path-label {
+  font-size: 0.64rem;
+  color: rgba(255, 255, 255, 0.58);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.file-path-display code {
+  font-family: var(--font-ui);
   font-size: 0.72rem;
+  color: rgba(234, 255, 246, 0.9);
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .file-filter {
@@ -982,7 +1009,7 @@ body {
   color: inherit;
   background: transparent;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 82px 140px;
+  grid-template-columns: 20px minmax(0, 1fr) 82px 140px;
   gap: 0.35rem;
   align-items: center;
   text-align: left;
@@ -999,11 +1026,13 @@ body {
 }
 
 .file-icon {
-  opacity: 0.7;
+  opacity: 0.95;
+  font-size: 0.88rem;
+  line-height: 1;
 }
 
 .file-icon.dir {
-  color: #93c5fd;
+  filter: saturate(1.1);
 }
 
 .file-name {
@@ -1054,6 +1083,11 @@ body {
   background: rgba(255, 255, 255, 0.85);
   display: block;
   margin: 0.06rem 0;
+}
+
+.fm-pane-menu-toggle:hover {
+  border-color: rgba(0, 212, 146, 0.5);
+  background: rgba(0, 212, 146, 0.12);
 }
 
 .fm-pane-menu {
@@ -1601,7 +1635,7 @@ body {
 
   .file-row {
     padding: 0.28rem 0.36rem;
-    grid-template-columns: 14px minmax(0, 1fr) 60px 102px;
+    grid-template-columns: 18px minmax(0, 1fr) 60px 102px;
   }
 
   .file-list-header {
@@ -2694,32 +2728,41 @@ body {
 
   .docker-files-panel.mobile .docker-files-body {
     flex-direction: column;
+    min-height: 0;
   }
 
   .docker-files-panel.mobile .docker-files-list {
-    min-height: 180px;
-    max-height: 40dvh;
+    min-height: 220px;
+    max-height: 56dvh;
   }
 
   .docker-files-panel.mobile .docker-file-row {
-    padding: 0.26rem 0.5rem;
-    font-size: 0.72rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.74rem;
   }
 
   .docker-files-panel.mobile .docker-file-preview {
-    flex: 0 1 auto;
+    flex: 1;
     border-left: 0;
     border-top: 1px solid var(--color-dark-border-subtle);
-    max-height: 38dvh;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .docker-files-panel.mobile .docker-preview-mobile-header {
+    padding: 0.34rem 0.5rem;
+    border-bottom: 1px solid var(--color-dark-border-subtle);
+    background: rgba(255, 255, 255, 0.02);
   }
 
   .docker-files-panel.mobile .docker-preview-meta {
     padding: 0.34rem 0.5rem;
-    font-size: 0.64rem;
+    font-size: 0.68rem;
   }
 
   .docker-files-panel.mobile .docker-preview-text {
-    padding: 0.34rem 0.5rem;
-    font-size: 0.66rem;
+    padding: 0.45rem 0.55rem;
+    font-size: 0.74rem;
+    line-height: 1.55;
   }
 }

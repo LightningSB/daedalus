@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { FileEntry, SortDir, SortKey } from './utils'
-import { filterEntries, formatBytes, formatDate, pathSegments, sortEntries } from './utils'
+import { dirname, filterEntries, formatBytes, formatDate, sortEntries } from './utils'
 
 export type FilePaneState = {
   path: string
@@ -47,7 +47,6 @@ export function FilePane({
   onFocus,
   rightSlot,
 }: FilePaneProps) {
-  const segments = pathSegments(state.path)
   const filtered = filterEntries(entries, state.filter)
   const sorted = sortEntries(filtered, state.sortKey, state.sortDir)
 
@@ -58,22 +57,23 @@ export function FilePane({
           <span>{title}</span>
           <div className="file-pane-title-actions">
             {rightSlot}
-            <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh">
-              ↻
+            <button
+              type="button"
+              className="file-refresh"
+              onClick={() => onPathChange(dirname(state.path))}
+              title="Go up"
+              aria-label="Go up"
+            >
+              <span className="file-icon-up" aria-hidden>↖</span>
+            </button>
+            <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh" aria-label="Refresh">
+              <span className="file-icon-refresh" aria-hidden>⟳</span>
             </button>
           </div>
         </div>
-        <div className="file-breadcrumbs">
-          {segments.map((segment) => (
-            <button
-              key={`${paneId}-${segment.value}`}
-              type="button"
-              className="breadcrumb"
-              onClick={() => onPathChange(segment.value)}
-            >
-              {segment.label}
-            </button>
-          ))}
+        <div className="file-path-display" title={state.path === '.' ? '~' : state.path}>
+          <span className="file-path-label">Path</span>
+          <code>{state.path === '.' ? '~' : state.path}</code>
         </div>
         <div className="file-pane-controls">
           <input
@@ -127,7 +127,9 @@ export function FilePane({
               onDoubleClick={() => onActivate(entry)}
               title={entry.path}
             >
-              <span className={`file-icon ${entry.type}`}>{entry.type === 'dir' ? '▸' : '•'}</span>
+              <span className={`file-icon ${entry.type}`}>
+                {entry.type === 'dir' ? '📁' : entry.type === 'symlink' ? '🔗' : '📄'}
+              </span>
               <span className="file-name">{entry.name}</span>
               <span className="file-size">{entry.type === 'dir' ? '-' : formatBytes(entry.size)}</span>
               <span className="file-mtime">{formatDate(entry.mtimeMs)}</span>

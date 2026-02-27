@@ -323,14 +323,12 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       if (isDualPaneRef.current) {
         // In dual-pane mode, navigate within the same pane
         handleNavigate(paneId, nextPath)
-        setStatus(`Opened: ${nextPath}`)
         return
       }
       const nextPane = createPane(nextPath)
       setPanes((previous) => [...previous, nextPane])
       setActivePaneId(nextPane.id)
       setMobileViewingPreview(false)
-      setStatus(`Opened: ${nextPath}`)
       return
     }
 
