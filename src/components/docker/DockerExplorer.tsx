@@ -71,10 +71,12 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(containerRef.current)
-    fitAddon.fit()
 
     termRef.current = term
     fitRef.current = fitAddon
+
+    // Delay initial fit so the DOM is at its final size before measuring
+    window.setTimeout(() => fitAddon.fit(), 50)
 
     const ws = new WebSocket(wsUrl)
     socketRef.current = ws
@@ -158,11 +160,19 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }
 
     const handleResize = () => {
       fitAddon.fit()
+      // Second pass for mobile keyboard animation settling
+      window.setTimeout(() => fitAddon.fit(), 50)
     }
     window.addEventListener('resize', handleResize)
+    window.addEventListener('orientationchange', handleResize)
+    window.visualViewport?.addEventListener('resize', handleResize)
+    window.visualViewport?.addEventListener('scroll', handleResize)
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      window.removeEventListener('orientationchange', handleResize)
+      window.visualViewport?.removeEventListener('resize', handleResize)
+      window.visualViewport?.removeEventListener('scroll', handleResize)
       ws.close()
       term.dispose()
     }

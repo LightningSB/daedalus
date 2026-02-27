@@ -663,13 +663,26 @@ function TerminalSession({
   useEffect(() => {
     if (!isActive) return
 
-    const timer = window.setTimeout(() => {
+    // First pass: handle the common case (tab click, workspace switch)
+    const t1 = window.setTimeout(() => {
       fitAddonRef.current?.fit()
       terminalRef.current?.focus()
-    }, 40)
+    }, 50)
 
-    return () => window.clearTimeout(timer)
-  }, [isActive])
+    // Second pass: catch slower layout reflows (sidebar animation, CSS transitions)
+    const t2 = window.setTimeout(() => {
+      const fitAddon = fitAddonRef.current
+      const term = terminalRef.current
+      if (!fitAddon || !term) return
+      fitAddon.fit()
+      void onResizeRef.current(session.id, term.cols, term.rows)
+    }, 200)
+
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [isActive, session.id])
 
   useEffect(() => {
     if (!isActive) return
@@ -711,15 +724,21 @@ function TerminalSession({
 
     const next = Math.max(10, Math.min(26, fontSize))
     term.options.fontSize = next
-    fitAddon.fit()
-    term.refresh(0, Math.max(0, term.rows - 1))
-    void onResizeRef.current(session.id, term.cols, term.rows)
+
+    // Delay fit so the browser can recalculate glyph metrics before measuring
+    const timer = window.setTimeout(() => {
+      fitAddon.fit()
+      term.refresh(0, Math.max(0, term.rows - 1))
+      void onResizeRef.current(session.id, term.cols, term.rows)
+    }, 50)
 
     try {
       window.localStorage.setItem('daedalus:terminalFontSize', String(next))
     } catch {
       // ignore storage errors
     }
+
+    return () => window.clearTimeout(timer)
   }, [fontSize, session.id])
 
   // Periodically flush buffered output to sessionStorage

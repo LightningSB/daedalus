@@ -311,6 +311,13 @@ body {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-height: 0;
+  min-width: 0;
+}
+
+.terminal-area,
+.terminal-session,
+.terminal-canvas {
+  min-width: 0;
 }
 
 .top-bar {
@@ -594,7 +601,6 @@ body {
 
 .terminal-canvas {
   min-height: 0;
-  padding: 0.3rem;
   overflow: hidden;
 }
 
