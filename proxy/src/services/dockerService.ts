@@ -119,17 +119,22 @@ async function resolveContainerIdFromRuntime(): Promise<string | null> {
 // Cache the self-container result to avoid repeated expensive lookups and
 // noisy error logs on every request.
 let selfContainerCache: { containerId: string; name: string } | null = null;
-let selfContainerError: Error | null = null;
-let selfContainerResolved = false;
-
+let lastSelfContainerError: Error | null = null;
+let lastSelfContainerAttempt = 0;
+const SELF_CONTAINER_RETRY_MS = 10000;
 
 export async function getSelfContainer(): Promise<{ containerId: string; name: string }> {
-  // Return cached result (success or failure) to avoid repeated expensive
-  // lookups and log storms when the feature is unavailable.
-  if (selfContainerResolved) {
-    if (selfContainerCache) return selfContainerCache;
-    throw selfContainerError ?? new Error("Could not resolve self container");
+  // Return cached success immediately.
+  if (selfContainerCache) return selfContainerCache;
+
+  // If we recently failed, don't hammer the Docker API/filesystem;
+  // return the last error until the cooldown expires.
+  const now = Date.now();
+  if (now - lastSelfContainerAttempt < SELF_CONTAINER_RETRY_MS) {
+    throw lastSelfContainerError ?? new Error("Could not resolve self container (cooldown)");
   }
+
+  lastSelfContainerAttempt = now;
 
   // SELF_CONTAINER_ID is an explicit operator override — trust it immediately
   // without any Docker API calls.  This is the recommended path when
@@ -137,7 +142,6 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
   const envId = process.env.SELF_CONTAINER_ID?.trim();
   if (envId) {
     selfContainerCache = { containerId: envId, name: envId.slice(0, 12) };
-    selfContainerResolved = true;
     return selfContainerCache;
   }
 
@@ -145,13 +149,12 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
   // running the entire hostname/proc lookup waterfall — every Docker API call
   // would fail anyway.  Surface a clear, actionable error immediately.
   if (!(await isDockerAvailable())) {
-    selfContainerError = new Error(
+    lastSelfContainerError = new Error(
       `Docker socket is not accessible (${DOCKER_SOCKET_PATH}). ` +
       "Mount /var/run/docker.sock into the proxy container, or set DOCKER_SOCKET_PATH env var. " +
       "Set SELF_CONTAINER_ID env var to the proxy container's full Docker container ID to enable local-tmux attach.",
     );
-    selfContainerResolved = true;
-    throw selfContainerError;
+    throw lastSelfContainerError;
   }
 
   // Use both the env HOSTNAME and the OS hostname() syscall (they should be
@@ -165,7 +168,6 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
     try {
       const info = await docker.getContainer(hostname).inspect();
       selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
-      selfContainerResolved = true;
       return selfContainerCache;
     } catch {
       // fallthrough to list lookup
@@ -181,7 +183,6 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
           containerId: match.Id,
           name: (match.Names?.[0] ?? hostname).replace(/^\//, ""),
         };
-        selfContainerResolved = true;
         return selfContainerCache;
       }
     } catch {
@@ -197,7 +198,6 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
     try {
       const info = await docker.getContainer(runtimeContainerId).inspect();
       selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
-      selfContainerResolved = true;
       return selfContainerCache;
     } catch {
       // fallthrough to list-based fuzzy match
@@ -216,7 +216,6 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
           containerId: match.Id,
           name: (match.Names?.[0] ?? match.Id.slice(0, 12)).replace(/^\//, ""),
         };
-        selfContainerResolved = true;
         return selfContainerCache;
       }
     } catch {
@@ -224,12 +223,11 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
     }
   }
 
-  selfContainerError = new Error(
+  lastSelfContainerError = new Error(
     `Could not resolve current container id (hostname=${hostname ?? "n/a"}, runtimeId=${runtimeContainerId ?? "n/a"}). ` +
     `Set SELF_CONTAINER_ID env var to the full Docker container ID to override.`,
   );
-  selfContainerResolved = true;
-  throw selfContainerError;
+  throw lastSelfContainerError;
 }
 
 /** Run a one-shot command in a container and return stdout. */

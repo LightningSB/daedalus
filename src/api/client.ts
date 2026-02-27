@@ -136,6 +136,12 @@ export function createApiClient(userId: string) {
     return data as T
   }
 
+  // Cache for self-container to avoid retry storms
+  let selfContainerCache: { containerId: string; name: string } | null = null
+  let lastSelfContainerAttempt = 0
+  let lastSelfContainerError: ApiError | null = null
+  const SELF_RETRY_MS = 10000
+
   // Docker API methods (server-global, not user-scoped)
   const dockerBase = API_BASE
 
@@ -494,21 +500,33 @@ export function createApiClient(userId: string) {
     },
 
     async getDockerSelfContainer(): Promise<{ containerId: string; name: string }> {
+      if (selfContainerCache) return selfContainerCache
+
+      const now = Date.now()
+      if (now - lastSelfContainerAttempt < SELF_RETRY_MS) {
+        throw lastSelfContainerError ?? new ApiError('Local tmux is unavailable (cooldown)', 503)
+      }
+
+      lastSelfContainerAttempt = now
       try {
         const data = await dockerJson<Record<string, unknown>>('/docker/self')
         const containerId = typeof data.containerId === 'string' ? data.containerId : ''
         const name = typeof data.name === 'string' ? data.name : 'local'
         if (!containerId) throw new ApiError('Missing self container id', 500)
-        return { containerId, name }
+
+        selfContainerCache = { containerId, name }
+        return selfContainerCache
       } catch (err) {
         if (err instanceof ApiError && err.status === 503) {
-          throw new ApiError(
+          lastSelfContainerError = new ApiError(
             'Local tmux is unavailable: proxy cannot identify its own container. ' +
             'Set SELF_CONTAINER_ID env var in the proxy deployment to fix this.',
             503,
           )
+        } else {
+          lastSelfContainerError = err instanceof ApiError ? err : new ApiError(err instanceof Error ? err.message : 'Unknown error', 500)
         }
-        throw err
+        throw lastSelfContainerError
       }
     },
 
