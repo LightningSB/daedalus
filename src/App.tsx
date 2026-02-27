@@ -1358,6 +1358,8 @@ function App() {
   }, [activeSshSessionId, apiClient])
 
   const closeSession = useCallback(async (sessionId: string) => {
+    const closing = sessions.find((session) => session.id === sessionId)
+
     setSessions((previous) => {
       const remaining = previous.filter((session) => session.id !== sessionId)
       if (activeSessionId === sessionId) {
@@ -1374,10 +1376,21 @@ function App() {
       return remaining
     })
 
-    try {
-      await apiClient.closeSshSession(sessionId)
-    } catch {
-      // best effort
+    // Only close real SSH sessions via SSH API.
+    // Docker exec tabs are WebSocket-only and tmux-bind tabs are virtual.
+    const sshSessionToClose =
+      closing?.type === 'ssh'
+        ? closing.id
+        : closing?.type === 'tmux-bind'
+          ? closing.attachedSessionId
+          : undefined
+
+    if (sshSessionToClose) {
+      try {
+        await apiClient.closeSshSession(sshSessionToClose)
+      } catch {
+        // best effort
+      }
     }
 
     try {
@@ -1385,7 +1398,7 @@ function App() {
     } catch {
       // ignore storage errors
     }
-  }, [activeSessionId, apiClient])
+  }, [activeSessionId, apiClient, sessions])
 
   const handleActivateTmuxBind = useCallback(async (tab: SessionTab) => {
     if (tab.attachedSessionId) {
@@ -1404,6 +1417,23 @@ function App() {
       const target = bind.target
 
       if (target.kind === 'local-tmux') {
+        const existingLocalDockerTab = sessions.find(
+          (s) => s.type === 'docker' && s.id.startsWith(`docker-local-tmux-${bind.id}-`),
+        )
+
+        if (existingLocalDockerTab) {
+          setActiveSessionId(existingLocalDockerTab.id)
+          setActiveWorkspace('terminal')
+          setStatusLine(`Attached (local): ${bind.title}`)
+          void apiClient.sendClientLog({
+            level: 'info',
+            category: 'tmux-bind',
+            message: 'local_tmux_reused_existing_tab',
+            meta: { bindId: bind.id, dockerTabId: existingLocalDockerTab.id },
+          })
+          return
+        }
+
         const self = await apiClient.getDockerSelfContainer()
         const dockerTabId = `docker-local-tmux-${bind.id}-${Date.now()}`
         const tmuxCmd = `tmux new -A -s ${target.tmuxSession}\r`
@@ -1419,6 +1449,12 @@ function App() {
         setActiveSessionId(dockerTabId)
         setActiveWorkspace('terminal')
         setStatusLine(`Attached (local): ${bind.title}`)
+        void apiClient.sendClientLog({
+          level: 'info',
+          category: 'tmux-bind',
+          message: 'local_tmux_created_tab',
+          meta: { bindId: bind.id, dockerTabId, containerId: self.containerId },
+        })
         return
       }
 
@@ -1462,7 +1498,7 @@ function App() {
     } finally {
       setTmuxBindAttachBusy(null)
     }
-  }, [apiClient, vaultToken])
+  }, [apiClient, sessions, vaultToken])
 
   const handleDeleteTmuxBind = useCallback(async (tab: SessionTab) => {
     if (!tab.bindId) return
@@ -1482,8 +1518,13 @@ function App() {
 
       await apiClient.deleteTmuxBind(tab.bindId)
       setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== tab.id && s.id !== tab.attachedSessionId)
-        if (activeSessionId === tab.id || activeSessionId === tab.attachedSessionId) {
+        const localDockerPrefix = `docker-local-tmux-${tab.bindId}-`
+        const next = prev.filter((s) => (
+          s.id !== tab.id
+          && s.id !== tab.attachedSessionId
+          && !s.id.startsWith(localDockerPrefix)
+        ))
+        if (activeSessionId === tab.id || activeSessionId === tab.attachedSessionId || (activeSessionId?.startsWith(localDockerPrefix) ?? false)) {
           setActiveSessionId(next[0]?.id ?? null)
         }
         return next
@@ -1781,19 +1822,6 @@ function App() {
       },
     })
   }, [apiClient, derivedUserId])
-
-  useEffect(() => {
-    void apiClient.sendClientLog({
-      level: 'info',
-      category: 'navigation',
-      message: 'workspace_or_session_changed',
-      meta: {
-        workspace: activeWorkspace,
-        activeSessionId: activeSessionId ?? null,
-        activeSessionType: activeSession?.type ?? null,
-      },
-    })
-  }, [activeSession?.type, activeSessionId, activeWorkspace, apiClient])
 
   const handleSaveEmail = useCallback(async () => {
     const email = emailDraft.trim()
@@ -2109,11 +2137,17 @@ function App() {
               type="button"
               className={session.id === activeSessionId && activeWorkspace === 'terminal' ? 'tab active' : 'tab'}
               onClick={() => {
-                setActiveSessionId(session.id)
                 setActiveWorkspace('terminal')
+
                 if (session.type === 'tmux-bind' && !session.attachedSessionId) {
+                  // For local-tmux binds, activation may map to/reuse a docker exec tab.
+                  // Let the activator choose the correct target tab instead of forcing
+                  // the virtual tmux-bind tab active first (which causes flicker/duplicates).
                   void handleActivateTmuxBind(session)
+                  return
                 }
+
+                setActiveSessionId(session.id)
               }}
             >
               <span>{
