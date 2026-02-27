@@ -46,6 +46,15 @@ export type AuditEvent = {
   port: number;
 };
 
+export type ClientLogEvent = {
+  ts: string;
+  userId: string;
+  level: "debug" | "info" | "warn" | "error";
+  category: string;
+  message: string;
+  meta?: Record<string, unknown>;
+};
+
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -149,6 +158,16 @@ export class MinioStore {
   async appendAuditEvent(event: AuditEvent): Promise<void> {
     const day = event.ts.slice(0, 10);
     const key = `audit/${day}.jsonl`;
+    await this.appendJsonLine(key, event);
+  }
+
+  async appendClientLogEvent(event: ClientLogEvent): Promise<void> {
+    const day = event.ts.slice(0, 10);
+    const key = `users/${encodeURIComponent(event.userId)}/client-logs/${day}.jsonl`;
+    await this.appendJsonLine(key, event);
+  }
+
+  private async appendJsonLine(key: string, event: unknown): Promise<void> {
     let existing = "";
 
     try {

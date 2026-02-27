@@ -309,6 +309,19 @@ export function createApiClient(userId: string) {
       return await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/tmux`, { signal })
     },
 
+    async sendClientLog(input: ClientLogInput): Promise<void> {
+      await requestJson('/client-logs', {
+        method: 'POST',
+        body: {
+          ts: input.ts,
+          level: input.level ?? 'info',
+          category: input.category ?? 'client',
+          message: input.message,
+          meta: input.meta,
+        },
+      })
+    },
+
     async listSftpDirectory(sessionId: string, path: string, signal?: AbortSignal): Promise<{
       path: string
       resolvedPath?: string
@@ -598,4 +611,12 @@ export type TmuxStatus = {
   status: 'not-installed' | 'no-server' | 'ok' | 'error'
   sessions: TmuxSession[]
   error?: string
+}
+
+export type ClientLogInput = {
+  level?: 'debug' | 'info' | 'warn' | 'error'
+  category?: string
+  message: string
+  meta?: Record<string, unknown>
+  ts?: string
 }

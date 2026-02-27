@@ -198,6 +198,35 @@ async function handleKnownHostByName(request: Request, userId: string, host: str
   return ok(request, { knownHosts });
 }
 
+async function handleClientLogs(request: Request, userId: string): Promise<Response> {
+  if (request.method === "POST") {
+    const body = await readJson<{
+      level?: "debug" | "info" | "warn" | "error";
+      category?: string;
+      message: string;
+      meta?: Record<string, unknown>;
+      ts?: string;
+    }>(request);
+
+    if (!body.message || typeof body.message !== "string") {
+      return bad(request, new Error("message is required"), 400);
+    }
+
+    await store.appendClientLogEvent({
+      ts: body.ts ?? new Date().toISOString(),
+      userId,
+      level: body.level ?? "info",
+      category: body.category ?? "client",
+      message: body.message,
+      meta: body.meta,
+    });
+
+    return ok(request, { ok: true }, 201);
+  }
+
+  return bad(request, new Error("Method not allowed"), 405);
+}
+
 async function handleVault(request: Request, userId: string, action: string): Promise<Response> {
   if (request.method === "GET" && action === "status") {
     const status = await vault.status(userId);
@@ -429,6 +458,11 @@ const server = Bun.serve<WsSessionData>({
       match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/known-hosts\/([^/]+)$/);
       if (match) {
         return await handleKnownHostByName(request, decodeURIComponent(match[1]), decodeURIComponent(match[2]));
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/client-logs$/);
+      if (match) {
+        return await handleClientLogs(request, decodeURIComponent(match[1]));
       }
 
       match = pathname.match(/^\/api\/users\/([^/]+)\/vault\/(status|init|unlock|lock|recover)$/);

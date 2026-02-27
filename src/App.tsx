@@ -1341,6 +1341,31 @@ function App() {
     return `tmux: ${tmuxStatus.sessions.length}`
   }, [activeSession?.type, activeSessionId, tmuxStatus])
 
+  useEffect(() => {
+    void apiClient.sendClientLog({
+      level: 'info',
+      category: 'app',
+      message: 'app_loaded',
+      meta: {
+        userId: derivedUserId,
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+      },
+    })
+  }, [apiClient, derivedUserId])
+
+  useEffect(() => {
+    void apiClient.sendClientLog({
+      level: 'info',
+      category: 'navigation',
+      message: 'workspace_or_session_changed',
+      meta: {
+        workspace: activeWorkspace,
+        activeSessionId: activeSessionId ?? null,
+        activeSessionType: activeSession?.type ?? null,
+      },
+    })
+  }, [activeSession?.type, activeSessionId, activeWorkspace, apiClient])
+
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
