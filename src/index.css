@@ -166,8 +166,9 @@ body {
 .workbench-shell {
   display: grid;
   grid-template-columns: 1fr;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background:
     radial-gradient(120% 140% at 0% 0%, rgba(0, 212, 146, 0.12), transparent 55%),
     radial-gradient(90% 120% at 100% 100%, rgba(0, 168, 116, 0.10), transparent 60%),
@@ -516,6 +517,8 @@ body {
 
 .file-manager-area {
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
   background: linear-gradient(180deg, rgba(7, 11, 16, 0.95), rgba(6, 9, 13, 0.98));
 }
 
@@ -526,6 +529,7 @@ body {
   height: 100%;
   padding: 0.6rem;
   gap: 0.55rem;
+  overflow: hidden;
 }
 
 .file-manager-header {
@@ -580,16 +584,116 @@ body {
   color: rgba(255, 255, 255, 0.7);
 }
 
-.file-manager-grid {
+/* Desktop: side-by-side pane + optional collapsible preview */
+.fm-desktop-grid {
   min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(220px, 42%);
+  display: flex;
+  align-items: stretch;
   gap: 0.6rem;
   overflow: hidden;
 }
 
-.file-manager-grid.single {
-  grid-template-columns: 1fr;
+.fm-desktop-grid > .file-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+/* Preview panel wrapper — always in DOM, animates width in/out */
+.fm-preview-panel {
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.22s ease;
+}
+
+.fm-preview-panel.visible {
+  width: 360px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.fm-preview-panel > .file-preview {
+  width: 360px;
+  min-width: 360px;
+  height: 100%;
+}
+
+/* Mobile: full-height sliding track */
+.fm-mobile-container {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+
+.fm-mobile-track-wrapper {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.fm-mobile-track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.32s cubic-bezier(0.25, 0.1, 0.25, 1);
+  will-change: transform;
+}
+
+.fm-mobile-slot {
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.fm-mobile-slot > .file-pane,
+.fm-mobile-slot > .file-preview {
+  height: 100%;
+}
+
+/* Dot navigation bar */
+.fm-mobile-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.38rem 0.5rem;
+  border-top: 1px solid var(--color-dark-border-subtle);
+  min-height: 0;
+}
+
+.fm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.fm-dot.active {
+  background: var(--color-emerald-primary);
+  transform: scale(1.35);
+}
+
+.fm-dot-preview {
+  border-radius: 3px;
+}
+
+/* Preview entry animation on desktop */
+@keyframes fm-preview-enter {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.fm-preview-panel.visible > .file-preview {
+  animation: fm-preview-enter 0.24s ease;
 }
 
 .file-pane,
@@ -746,6 +850,21 @@ body {
 
 .file-preview {
   grid-template-rows: auto auto auto 1fr;
+}
+
+/* Back button for mobile preview */
+.file-preview-nav {
+  padding: 0.42rem 0.6rem 0;
+}
+
+.file-preview-back {
+  border: 1px solid var(--color-dark-border-subtle);
+  border-radius: 0.45rem;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.28rem 0.55rem;
+  font-size: 0.76rem;
+  cursor: pointer;
 }
 
 .file-preview-header {
@@ -1170,17 +1289,23 @@ body {
   .file-manager-area,
   .terminal-session,
   .terminal-canvas,
-  .file-manager-grid {
+  .fm-mobile-container,
+  .fm-mobile-track-wrapper {
     min-width: 0;
   }
 
   .file-manager {
-    padding: 0.5rem;
+    padding: 0.4rem 0.4rem 0.3rem;
+    gap: 0.4rem;
   }
 
-  .file-manager-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(170px, 36%);
+  .fm-preview-panel.visible {
+    width: 300px;
+  }
+
+  .fm-preview-panel > .file-preview {
+    width: 300px;
+    min-width: 300px;
   }
 
   .file-preview-media.pdf iframe {
@@ -1348,3 +1473,695 @@ body {
   min-height: min(420px, 82vh);
   justify-content: center;
 }
+
+/* ==========================================================================
+   Docker Explorer + Compose Runner + Openclaw CLI
+   ========================================================================== */
+
+.docker-workspace {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --------------------------------------------------------------------------
+   Shared Docker utilities
+   -------------------------------------------------------------------------- */
+
+.docker-whale { font-size: 1.1rem; }
+
+.docker-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-hint);
+}
+
+.docker-error {
+  color: var(--color-error);
+  font-size: 0.8rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(254, 202, 202, 0.06);
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.docker-action-btn {
+  font-size: 0.75rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-dark-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.docker-action-btn:hover { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.docker-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+.docker-close-btn {
+  font-size: 0.75rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 90, 90, 0.3);
+  background: rgba(255, 90, 90, 0.06);
+  color: rgba(255, 160, 160, 0.9);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.docker-close-btn:hover { background: rgba(255, 90, 90, 0.15); }
+
+.docker-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1rem;
+  color: var(--color-text-hint);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.docker-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+.docker-unavail-icon { font-size: 3rem; }
+.docker-unavailable h3 { margin: 0; font-size: 1.1rem; color: var(--color-text-muted); }
+
+.docker-section { margin-top: 1rem; }
+.docker-section h4 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-hint);
+  margin: 0 0 0.4rem;
+}
+
+/* --------------------------------------------------------------------------
+   Docker Explorer
+   -------------------------------------------------------------------------- */
+
+.docker-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 0.75rem;
+  gap: 0.75rem;
+}
+
+.docker-explorer-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-text-base);
+}
+
+.docker-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.docker-explorer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.docker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--color-text-hint);
+  cursor: pointer;
+  user-select: none;
+}
+
+.docker-explorer-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.docker-container-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.docker-container-list.with-detail { flex: 0 0 240px; }
+
+/* Container card */
+.docker-container-card {
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-dark-border-subtle);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.18s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.docker-container-card.active {
+  border-color: var(--color-dark-border);
+  background: rgba(0, 212, 146, 0.06);
+}
+
+.docker-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.docker-card-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.docker-card-image {
+  font-size: 0.72rem;
+  color: var(--color-text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.docker-card-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--color-text-hint);
+}
+.docker-card-ports { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.docker-port-pill {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: rgba(0, 212, 146, 0.08);
+  border: 1px solid rgba(0, 212, 146, 0.2);
+  color: var(--color-emerald-primary);
+}
+.docker-port-row { font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.15rem; }
+
+/* State badges */
+.docker-state-badge {
+  font-size: 0.65rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.docker-state-badge.running {
+  background: rgba(0, 212, 146, 0.1);
+  border-color: rgba(0, 212, 146, 0.3);
+  color: var(--color-emerald-primary);
+}
+.docker-state-badge.exited,
+.docker-state-badge.dead {
+  background: rgba(255, 90, 90, 0.07);
+  border-color: rgba(255, 90, 90, 0.25);
+  color: rgba(255, 160, 160, 0.85);
+}
+.docker-state-badge.paused,
+.docker-state-badge.created {
+  background: rgba(251, 191, 36, 0.07);
+  border-color: rgba(251, 191, 36, 0.25);
+  color: var(--color-amber);
+}
+
+/* Container detail panel */
+.docker-detail-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.docker-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+.docker-detail-name { font-size: 0.9rem; margin-right: 0.5rem; }
+
+.docker-detail-tabs {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.4rem 0.6rem 0;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  flex-shrink: 0;
+}
+.docker-detail-tab {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  border-radius: 5px 5px 0 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-hint);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.docker-detail-tab:hover:not(.disabled) { color: var(--color-text-muted); }
+.docker-detail-tab.active {
+  background: rgba(0, 212, 146, 0.1);
+  color: var(--color-emerald-primary);
+}
+.docker-detail-tab.disabled { opacity: 0.35; cursor: not-allowed; }
+
+.docker-detail-body {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Overview tab */
+.docker-overview {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+}
+.docker-meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.docker-meta-table td {
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+}
+.docker-meta-table td:first-child {
+  color: var(--color-text-hint);
+  width: 80px;
+  white-space: nowrap;
+}
+.docker-cmd {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+.docker-mount-row, .docker-env-row {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.docker-env-list { max-height: 140px; overflow-y: auto; }
+
+/* --------------------------------------------------------------------------
+   Container Files Panel
+   -------------------------------------------------------------------------- */
+
+.docker-files-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.docker-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  flex-shrink: 0;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.docker-breadcrumb { display: flex; align-items: center; gap: 0; font-size: 0.75rem; flex: 1; overflow: hidden; }
+.docker-bc-sep { color: var(--color-text-hint); padding: 0 0.1rem; }
+.docker-bc-seg {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-muted); font-size: 0.75rem;
+  padding: 0.1rem 0.2rem; border-radius: 3px;
+}
+.docker-bc-seg:hover { color: var(--color-text-base); background: rgba(255,255,255,0.06); }
+.docker-bc-item { display: flex; align-items: center; }
+.docker-files-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+
+.docker-files-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.docker-files-list {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.docker-file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.docker-file-row:hover { background: rgba(255,255,255,0.04); }
+.docker-file-row.selected { background: rgba(0,212,146,0.07); color: var(--color-text-base); }
+.docker-file-icon { font-size: 0.85rem; flex-shrink: 0; }
+.docker-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docker-file-size { font-size: 0.68rem; color: var(--color-text-hint); flex-shrink: 0; }
+
+.docker-file-preview {
+  flex: 0 0 50%;
+  border-left: 1px solid var(--color-dark-border-subtle);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.docker-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  font-size: 0.72rem;
+  color: var(--color-text-hint);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.docker-preview-text {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  overflow: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Exec Terminal
+   -------------------------------------------------------------------------- */
+
+.docker-exec-terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.docker-exec-terminal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  flex-shrink: 0;
+}
+.docker-exec-label { font-size: 0.75rem; color: var(--color-text-hint); }
+.docker-exec-terminal {
+  flex: 1;
+  min-height: 0;
+  background: #070b10;
+}
+
+/* --------------------------------------------------------------------------
+   Compose Runner
+   -------------------------------------------------------------------------- */
+
+.compose-runner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem;
+  gap: 0.75rem;
+}
+
+.compose-runner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.compose-project {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.compose-project-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.compose-project-name { font-size: 0.9rem; }
+.compose-project-status {
+  font-size: 0.68rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: var(--color-text-hint);
+  margin-left: 0.4rem;
+}
+.compose-project-status.running {
+  border-color: rgba(0, 212, 146, 0.3);
+  color: var(--color-emerald-primary);
+}
+
+.compose-services { display: flex; flex-direction: column; }
+
+.compose-service-row {
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+}
+.compose-service-row:last-child { border-bottom: none; }
+
+.compose-service-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.85rem;
+  gap: 0.5rem;
+}
+.compose-service-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.compose-service-name { font-size: 0.85rem; }
+.compose-service-image { font-size: 0.7rem; color: var(--color-text-hint); }
+.compose-service-desc { font-size: 0.72rem; color: var(--color-text-muted); }
+.compose-service-actions { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
+
+.compose-run-btn {
+  font-size: 0.75rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.compose-abort-btn {
+  font-size: 0.75rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 90, 90, 0.4);
+  background: rgba(255, 90, 90, 0.08);
+  color: rgba(255, 160, 160, 0.9);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.compose-abort-btn:hover { background: rgba(255, 90, 90, 0.18); }
+.compose-expand-btn {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.35rem;
+  background: none;
+  border: none;
+  color: var(--color-text-hint);
+  cursor: pointer;
+}
+
+.compose-service-detail {
+  padding: 0.5rem 0.85rem 0.65rem;
+  border-top: 1px solid var(--color-dark-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.compose-args-row { display: flex; }
+.compose-args-input {
+  flex: 1;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--color-dark-border-subtle);
+  border-radius: 4px;
+  color: var(--color-text-base);
+  outline: none;
+  font-family: var(--font-ui);
+}
+.compose-args-input:focus { border-color: var(--color-dark-border); }
+.compose-service-cmd { font-size: 0.72rem; color: var(--color-text-hint); }
+
+/* Compose output terminal */
+.compose-output {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--color-dark-border-subtle);
+  border-radius: 5px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.72rem;
+  font-family: var(--font-ui);
+  line-height: 1.5;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  word-break: break-all;
+}
+.compose-line { white-space: pre-wrap; }
+.compose-line-stdout { color: var(--color-text-muted); }
+.compose-line-stderr { color: #fca5a5; }
+.compose-line-system { color: var(--color-text-hint); font-style: italic; }
+.compose-line-system.ok { color: var(--color-emerald-primary); font-style: normal; }
+.compose-line-system.fail { color: #fca5a5; font-style: normal; }
+
+/* --------------------------------------------------------------------------
+   Openclaw CLI
+   -------------------------------------------------------------------------- */
+
+.openclaw-cli {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem;
+  gap: 0.75rem;
+}
+.openclaw-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.openclaw-header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+  display: inline;
+}
+.openclaw-claw { font-size: 1.4rem; margin-right: 0.35rem; }
+.openclaw-image { font-size: 0.72rem; color: var(--color-text-hint); margin: 0; }
+.openclaw-project {
+  font-size: 0.72rem;
+  color: var(--color-text-hint);
+  border: 1px solid var(--color-dark-border-subtle);
+  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.openclaw-section-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-hint);
+  margin-bottom: 0.35rem;
+  display: block;
+}
+.openclaw-quickactions { display: flex; flex-direction: column; }
+.openclaw-qa-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.4rem;
+}
+.openclaw-qa-btn {
+  padding: 0.45rem 0.5rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-dark-border-subtle);
+  background: rgba(255,255,255,0.03);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+.openclaw-qa-btn:hover:not(:disabled) {
+  border-color: var(--color-dark-border);
+  background: rgba(0, 212, 146, 0.06);
+  color: var(--color-text-base);
+}
+.openclaw-qa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.openclaw-custom { display: flex; flex-direction: column; }
+.openclaw-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--color-dark-border-subtle);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+}
+.openclaw-prompt {
+  font-size: 0.75rem;
+  color: var(--color-emerald-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.openclaw-cmd-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--color-text-base);
+  font-size: 0.8rem;
+  font-family: var(--font-ui);
+  min-width: 0;
+}
+.openclaw-run-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.openclaw-output-wrap { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; }
+.openclaw-output-header { display: flex; align-items: center; justify-content: space-between; }
+.openclaw-output { flex: 1; max-height: 400px; }

@@ -9,6 +9,7 @@ const PREVIEW_CHUNK_BYTES = 64 * 1024
 const PREVIEW_MAX_BYTES = 512 * 1024
 const MEDIA_PREVIEW_LIMIT = 20 * 1024 * 1024
 const SWIPE_THRESHOLD_PX = 48
+const MOBILE_BREAKPOINT = '(max-width: 767px)'
 
 export type FileManagerProps = {
   sessionId?: string
@@ -82,6 +83,11 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const [paneData, setPaneData] = useState<Record<string, PaneData>>({})
   const [previewState, setPreviewState] = useState<PreviewState>({ loading: false })
   const [status, setStatus] = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_BREAKPOINT).matches)
+  const [mobileViewingPreview, setMobileViewingPreview] = useState(false)
+
+  const isMobileRef = useRef(isMobile)
+  isMobileRef.current = isMobile
 
   const sessionStateRef = useRef(new Map<string, { panes: PaneModel[]; activePaneId: string | null }>())
   const cacheRef = useRef(new Map<string, Map<string, CachedDir>>())
@@ -91,6 +97,17 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const previewDebounceRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const touchStartXRef = useRef<number | null>(null)
+
+  // Mobile breakpoint listener
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_BREAKPOINT)
+    const handler = (event: MediaQueryListEvent) => {
+      setIsMobile(event.matches)
+      isMobileRef.current = event.matches
+    }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   const activePane = useMemo(() => {
     if (panes.length === 0) return null
@@ -116,6 +133,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       setActivePaneId(initial[0].id)
       setPaneData({})
       setPreviewState({ loading: false })
+      setMobileViewingPreview(false)
       return
     }
 
@@ -128,6 +146,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       setPanes(initial)
       setActivePaneId(initial[0].id)
     }
+    setMobileViewingPreview(false)
   }, [sessionId])
 
   useEffect(() => {
@@ -215,6 +234,22 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     return activeEntries.find((entry) => entry.path === activeSelection) ?? null
   }, [activeEntries, activeSelection])
 
+  // Whether a preview panel should be shown (file selected, not a dir)
+  const hasPreview = useMemo(() => {
+    return selectedEntry !== null && selectedEntry.type !== 'dir'
+  }, [selectedEntry])
+
+  // Mobile swipe slot index: panes[0..n-1] + optional preview slot at panes.length
+  const activeMobileSlotIndex = useMemo(() => {
+    if (mobileViewingPreview && hasPreview) return panes.length
+    return Math.max(0, activePaneIndex)
+  }, [mobileViewingPreview, hasPreview, panes.length, activePaneIndex])
+
+  // Auto-reset mobile preview view when file is deselected
+  useEffect(() => {
+    if (!hasPreview) setMobileViewingPreview(false)
+  }, [hasPreview])
+
   const refreshActivePane = useCallback(() => {
     if (!activePane) return
     fetchDirectory(activePane.id, activePane.state.path, true)
@@ -236,6 +271,10 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const handleSelect = useCallback((paneId: string, entry: FileEntry | null) => {
     setActivePaneId(paneId)
     updatePaneState(paneId, (prev) => ({ ...prev, selectedPath: entry?.path }))
+    // On mobile: auto-navigate to preview slot when a file is selected
+    if (entry && entry.type !== 'dir' && isMobileRef.current) {
+      setMobileViewingPreview(true)
+    }
   }, [updatePaneState])
 
   const handleActivate = useCallback((paneId: string, entry: FileEntry) => {
@@ -248,11 +287,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       const nextPane = createPane(nextPath)
       setPanes((previous) => [...previous, nextPane])
       setActivePaneId(nextPane.id)
-      setStatus(`Opened pane ${panes.length + 1}: ${nextPath}`)
+      setMobileViewingPreview(false)
+      setStatus(`Opened: ${nextPath}`)
       return
     }
 
     updatePaneState(paneId, (prev) => ({ ...prev, selectedPath: entry.path }))
+    if (isMobileRef.current) setMobileViewingPreview(true)
   }, [panes, updatePaneState])
 
   const handleSortChange = useCallback((paneId: string, key: 'name' | 'size' | 'mtime') => {
@@ -523,6 +564,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     return previewState.preview.bytesRead < PREVIEW_MAX_BYTES
   }, [previewState.preview])
 
+  // Touch handlers for mobile swipe-track navigation
   const handleTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
     touchStartXRef.current = event.changedTouches[0]?.clientX ?? null
   }, [])
@@ -536,14 +578,39 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     const delta = endX - startX
     if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return
 
+    const totalSlots = panes.length + (hasPreview ? 1 : 0)
+
     if (delta < 0) {
-      switchPaneByOffset(1)
+      // Swipe left: advance to next slot
+      const next = activeMobileSlotIndex + 1
+      if (next >= totalSlots) return
+      if (next >= panes.length) {
+        setMobileViewingPreview(true)
+      } else {
+        setActivePaneId(panes[next].id)
+        setMobileViewingPreview(false)
+      }
     } else {
-      switchPaneByOffset(-1)
+      // Swipe right: go back to previous slot
+      if (mobileViewingPreview) {
+        setMobileViewingPreview(false)
+      } else {
+        const prev = activeMobileSlotIndex - 1
+        if (prev < 0) return
+        setActivePaneId(panes[prev].id)
+      }
     }
-  }, [switchPaneByOffset])
+  }, [activeMobileSlotIndex, hasPreview, mobileViewingPreview, panes])
 
   const currentPaneData = activePane ? (paneData[activePane.id] ?? { entries: [], loading: false, truncated: false }) : { entries: [], loading: false, truncated: false }
+
+  // Header subtitle: current path + pane position
+  const headerSubtitle = useMemo(() => {
+    if (!activePane) return sessionTitle ?? 'No active session'
+    const pathLabel = activePane.state.path === '.' ? '~' : activePane.state.path
+    const paneLabel = panes.length > 1 ? ` · ${activePaneIndex + 1}/${panes.length}` : ''
+    return `${pathLabel}${paneLabel}`
+  }, [activePane, activePaneIndex, panes.length, sessionTitle])
 
   return (
     <section
@@ -554,8 +621,8 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     >
       <div className="file-manager-header">
         <div className="file-manager-title">
-          <h2>File Manager</h2>
-          <span className="file-manager-sub">{sessionTitle ? `Session: ${sessionTitle}` : 'No active session'}</span>
+          <h2>{sessionTitle ?? 'Files'}</h2>
+          <span className="file-manager-sub">{headerSubtitle}</span>
         </div>
         <div className="file-manager-actions">
           <button type="button" onClick={handleUploadClick} disabled={!sessionId}>Upload</button>
@@ -579,37 +646,120 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       )}
 
       {sessionId && activePane && (
-        <div className="file-manager-grid single" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-          <FilePane
-            paneId={activePane.id}
-            title={`Pane ${activePaneIndex + 1} of ${panes.length}`}
-            state={activePane.state}
-            entries={currentPaneData.entries}
-            loading={currentPaneData.loading}
-            error={currentPaneData.error}
-            truncated={currentPaneData.truncated}
-            isActive
-            onPathChange={(path) => handleNavigate(activePane.id, path)}
-            onSelect={(entry) => handleSelect(activePane.id, entry)}
-            onFilterChange={(value) => handleFilterChange(activePane.id, value)}
-            onSortChange={(key) => handleSortChange(activePane.id, key)}
-            onRefresh={() => fetchDirectory(activePane.id, activePane.state.path, true)}
-            onActivate={(entry) => handleActivate(activePane.id, entry)}
-            onFocus={() => setActivePaneId(activePane.id)}
-          />
-
-          <FilePreview
-            entry={previewState.entry ?? undefined}
-            stat={previewState.stat ?? undefined}
-            preview={previewState.preview ?? undefined}
-            loading={previewState.loading}
-            error={previewState.error}
-            mediaKind={previewState.mediaKind ?? null}
-            mediaUrl={previewState.mediaUrl ?? null}
-            downloadUrl={previewDownloadUrl}
-            onLoadMore={canLoadMorePreview ? loadMorePreview : undefined}
-          />
-        </div>
+        isMobile ? (
+          // Mobile: horizontal sliding pane track
+          <div className="fm-mobile-container">
+            <div
+              className="fm-mobile-track-wrapper"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div
+                className="fm-mobile-track"
+                style={{ transform: `translateX(-${activeMobileSlotIndex * 100}%)` }}
+              >
+                {panes.map((pane, index) => {
+                  const pData = paneData[pane.id] ?? { entries: [], loading: false, truncated: false }
+                  return (
+                    <div key={pane.id} className="fm-mobile-slot">
+                      <FilePane
+                        paneId={pane.id}
+                        title={`Pane ${index + 1} of ${panes.length}`}
+                        state={pane.state}
+                        entries={pData.entries}
+                        loading={pData.loading}
+                        error={pData.error}
+                        truncated={pData.truncated}
+                        isActive={pane.id === activePane.id}
+                        onPathChange={(path) => handleNavigate(pane.id, path)}
+                        onSelect={(entry) => handleSelect(pane.id, entry)}
+                        onFilterChange={(value) => handleFilterChange(pane.id, value)}
+                        onSortChange={(key) => handleSortChange(pane.id, key)}
+                        onRefresh={() => fetchDirectory(pane.id, pane.state.path, true)}
+                        onActivate={(entry) => handleActivate(pane.id, entry)}
+                        onFocus={() => setActivePaneId(pane.id)}
+                      />
+                    </div>
+                  )
+                })}
+                {hasPreview && (
+                  <div className="fm-mobile-slot">
+                    <FilePreview
+                      entry={previewState.entry ?? undefined}
+                      stat={previewState.stat ?? undefined}
+                      preview={previewState.preview ?? undefined}
+                      loading={previewState.loading}
+                      error={previewState.error}
+                      mediaKind={previewState.mediaKind ?? null}
+                      mediaUrl={previewState.mediaUrl ?? null}
+                      downloadUrl={previewDownloadUrl}
+                      onLoadMore={canLoadMorePreview ? loadMorePreview : undefined}
+                      onBack={() => setMobileViewingPreview(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Dot navigation indicators */}
+            <div className="fm-mobile-dots">
+              {panes.map((pane, index) => (
+                <button
+                  key={pane.id}
+                  type="button"
+                  className={`fm-dot${activeMobileSlotIndex === index ? ' active' : ''}`}
+                  onClick={() => {
+                    setActivePaneId(pane.id)
+                    setMobileViewingPreview(false)
+                  }}
+                  aria-label={`Pane ${index + 1}`}
+                />
+              ))}
+              {hasPreview && (
+                <button
+                  type="button"
+                  className={`fm-dot fm-dot-preview${activeMobileSlotIndex === panes.length ? ' active' : ''}`}
+                  onClick={() => setMobileViewingPreview(true)}
+                  aria-label="Preview"
+                />
+              )}
+            </div>
+          </div>
+        ) : (
+          // Desktop: file pane + optional side preview
+          <div className={`fm-desktop-grid${hasPreview ? ' with-preview' : ''}`}>
+            <FilePane
+              paneId={activePane.id}
+              title={`Pane ${activePaneIndex + 1} of ${panes.length}`}
+              state={activePane.state}
+              entries={currentPaneData.entries}
+              loading={currentPaneData.loading}
+              error={currentPaneData.error}
+              truncated={currentPaneData.truncated}
+              isActive
+              onPathChange={(path) => handleNavigate(activePane.id, path)}
+              onSelect={(entry) => handleSelect(activePane.id, entry)}
+              onFilterChange={(value) => handleFilterChange(activePane.id, value)}
+              onSortChange={(key) => handleSortChange(activePane.id, key)}
+              onRefresh={() => fetchDirectory(activePane.id, activePane.state.path, true)}
+              onActivate={(entry) => handleActivate(activePane.id, entry)}
+              onFocus={() => setActivePaneId(activePane.id)}
+            />
+            {/* Preview panel: always in DOM for smooth transition, hidden when no selection */}
+            <div className={`fm-preview-panel${hasPreview ? ' visible' : ''}`}>
+              <FilePreview
+                entry={previewState.entry ?? undefined}
+                stat={previewState.stat ?? undefined}
+                preview={previewState.preview ?? undefined}
+                loading={previewState.loading}
+                error={previewState.error}
+                mediaKind={previewState.mediaKind ?? null}
+                mediaUrl={previewState.mediaUrl ?? null}
+                downloadUrl={previewDownloadUrl}
+                onLoadMore={canLoadMorePreview ? loadMorePreview : undefined}
+              />
+            </div>
+          </div>
+        )
       )}
 
       <div className="file-manager-footer">

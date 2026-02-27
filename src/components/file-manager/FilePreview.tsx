@@ -11,6 +11,7 @@ type FilePreviewProps = {
   mediaUrl?: string | null
   downloadUrl?: string | null
   onLoadMore?: () => void
+  onBack?: () => void
 }
 
 export function FilePreview({
@@ -23,10 +24,16 @@ export function FilePreview({
   mediaUrl,
   downloadUrl,
   onLoadMore,
+  onBack,
 }: FilePreviewProps) {
   if (!entry) {
     return (
       <section className="file-preview">
+        {onBack && (
+          <div className="file-preview-nav">
+            <button type="button" className="file-preview-back" onClick={onBack}>← Back</button>
+          </div>
+        )}
         <div className="file-preview-empty">Select a file to preview.</div>
       </section>
     )
@@ -43,6 +50,11 @@ export function FilePreview({
 
   return (
     <section className="file-preview">
+      {onBack && (
+        <div className="file-preview-nav">
+          <button type="button" className="file-preview-back" onClick={onBack}>← Back</button>
+        </div>
+      )}
       <div className="file-preview-header">
         <div>
           <h3>{entry.name}</h3>

@@ -6,6 +6,9 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { useTelegram } from './hooks/useTelegram'
 import { FileManager } from './components/file-manager/FileManager'
+import { DockerExplorer } from './components/docker/DockerExplorer'
+import { ComposeRunner } from './components/docker/ComposeRunner'
+import { OpenclawCLI } from './components/docker/OpenclawCLI'
 import {
   ApiError,
   createApiClient,
@@ -833,7 +836,7 @@ function App() {
   const [statusLine, setStatusLine] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [activeWorkspace, setActiveWorkspace] = useState<'terminal' | 'files'>('terminal')
+  const [activeWorkspace, setActiveWorkspace] = useState<'terminal' | 'files' | 'docker' | 'compose' | 'openclaw'>('terminal')
 
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionCommand, setSessionCommand] = useState('')
@@ -1391,6 +1394,27 @@ function App() {
           >
             Files
           </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'docker' ? 'tab workspace-tab active' : 'tab workspace-tab'}
+            onClick={() => setActiveWorkspace('docker')}
+          >
+            🐳 Docker
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'compose' ? 'tab workspace-tab active' : 'tab workspace-tab'}
+            onClick={() => setActiveWorkspace('compose')}
+          >
+            ⚡ Compose
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'openclaw' ? 'tab workspace-tab active' : 'tab workspace-tab'}
+            onClick={() => setActiveWorkspace('openclaw')}
+          >
+            🦀 Openclaw
+          </button>
 
           {sessions.map((session) => (
             <button
@@ -1444,6 +1468,15 @@ function App() {
             sessionTitle={activeSession?.title}
             apiClient={apiClient}
           />
+        </div>
+        <div className={activeWorkspace === 'docker' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
+          <DockerExplorer apiClient={apiClient} />
+        </div>
+        <div className={activeWorkspace === 'compose' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
+          <ComposeRunner apiClient={apiClient} />
+        </div>
+        <div className={activeWorkspace === 'openclaw' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
+          <OpenclawCLI apiClient={apiClient} />
         </div>
 
         {statusLine && <p className={statusLineClass}>{statusLine}</p>}

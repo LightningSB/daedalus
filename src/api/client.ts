@@ -131,6 +131,31 @@ export function createApiClient(userId: string) {
     return data as T
   }
 
+  // Docker API methods (server-global, not user-scoped)
+  const dockerBase = API_BASE
+
+  async function dockerJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    const response = await fetch(`${dockerBase}${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    })
+    const text = await response.text()
+    let data: unknown = null
+    if (text) {
+      try { data = JSON.parse(text) } catch { data = null }
+    }
+    if (!response.ok) {
+      const message = typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : `Request failed (${response.status})`
+      throw new ApiError(message, response.status)
+    }
+    return data as T
+  }
+
   return {
     getSessionWebsocketUrl(sessionId: string): string {
       return wsUrlFor(`${base}/ssh/sessions/${encodeURIComponent(sessionId)}/ws`)
@@ -376,5 +401,179 @@ export function createApiClient(userId: string) {
         body: { path, recursive },
       })
     },
+
+    // -------------------------------------------------------------------------
+    // Docker API
+    // -------------------------------------------------------------------------
+
+    async checkDockerHealth(): Promise<boolean> {
+      const data = await dockerJson<{ available?: boolean }>('/docker/health')
+      return Boolean(data.available)
+    },
+
+    async getComposeProjects(): Promise<ComposeProject[]> {
+      const data = await dockerJson<{ projects?: unknown[] }>('/docker/compose/projects')
+      return (Array.isArray(data.projects) ? data.projects : []) as ComposeProject[]
+    },
+
+    async streamComposeTask(
+      projectName: string,
+      configFile: string,
+      service: string,
+      args: string[],
+      onEvent: (event: TaskEvent) => void,
+      signal?: AbortSignal,
+    ): Promise<number> {
+      const response = await fetch(`${dockerBase}/docker/compose/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName, configFile, service, args }),
+        signal,
+      })
+      if (!response.ok) throw new ApiError(`Compose run failed (${response.status})`, response.status)
+      if (!response.body) return -1
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let exitCode = -1
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const event = JSON.parse(line.slice(6)) as TaskEvent
+                onEvent(event)
+                if (event.type === 'exit' && event.code !== undefined) {
+                  exitCode = event.code
+                }
+              } catch { /* ignore malformed */ }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      return exitCode
+    },
+
+    async listDockerContainers(all = false): Promise<DockerContainerSummary[]> {
+      const params = new URLSearchParams({ all: all ? 'true' : 'false' })
+      const data = await dockerJson<{ containers?: unknown[] }>(`/docker/containers?${params}`)
+      return (Array.isArray(data.containers) ? data.containers : []) as DockerContainerSummary[]
+    },
+
+    async inspectDockerContainer(id: string): Promise<DockerContainerInfo> {
+      const data = await dockerJson<{ info: DockerContainerInfo }>(`/docker/containers/${encodeURIComponent(id)}/inspect`)
+      return data.info
+    },
+
+    async listDockerContainerFiles(id: string, path: string): Promise<DockerFileEntry[]> {
+      const params = new URLSearchParams({ path })
+      const data = await dockerJson<{ entries?: unknown[] }>(`/docker/containers/${encodeURIComponent(id)}/fs/list?${params}`)
+      return (Array.isArray(data.entries) ? data.entries : []) as DockerFileEntry[]
+    },
+
+    async previewDockerContainerFile(id: string, path: string, limit = 65536): Promise<DockerFilePreview> {
+      const params = new URLSearchParams({ path, limit: String(limit) })
+      return dockerJson<DockerFilePreview>(`/docker/containers/${encodeURIComponent(id)}/fs/preview?${params}`)
+    },
+
+    getContainerExecWsUrl(containerId: string): string {
+      return wsUrlFor(`${dockerBase}/docker/containers/${encodeURIComponent(containerId)}/exec/ws`)
+    },
   }
+}
+
+// -------------------------------------------------------------------------
+// Docker shared types (exported for frontend components)
+// -------------------------------------------------------------------------
+
+export type DockerContainerSummary = {
+  id: string
+  shortId: string
+  names: string[]
+  image: string
+  status: string
+  state: string
+  created: number
+  ports: Array<{ ip?: string; privatePort: number; publicPort?: number; type: string }>
+  labels: Record<string, string>
+}
+
+export type DockerContainerInfo = {
+  id: string
+  name: string
+  image: string
+  state: {
+    status: string
+    running: boolean
+    paused: boolean
+    restarting: boolean
+    pid: number
+    startedAt: string
+    finishedAt: string
+  }
+  config: {
+    hostname: string
+    image: string
+    cmd: string[]
+    env: string[]
+    labels: Record<string, string>
+    workingDir: string
+  }
+  networkSettings: {
+    ipAddress: string
+    ports: Record<string, unknown>
+  }
+  mounts: Array<{ type: string; source: string; destination: string; mode: string }>
+}
+
+export type DockerFileEntry = {
+  name: string
+  path: string
+  type: 'file' | 'dir' | 'symlink' | 'other'
+  size: number
+  permissions?: string
+}
+
+export type DockerFilePreview = {
+  path: string
+  size: number
+  offset: number
+  limit: number
+  bytesRead: number
+  truncated: boolean
+  kind: 'text' | 'binary'
+  encoding?: 'utf-8'
+  data?: string
+}
+
+export type ComposeProject = {
+  name: string
+  status: string
+  configFiles: string[]
+  services: ComposeCliService[]
+}
+
+export type ComposeCliService = {
+  name: string
+  image?: string
+  description?: string
+  profiles: string[]
+  command?: string
+}
+
+export type TaskEvent = {
+  type: 'stdout' | 'stderr' | 'exit' | 'error'
+  data?: string
+  code?: number
+  message?: string
 }
