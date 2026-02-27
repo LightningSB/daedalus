@@ -1387,6 +1387,26 @@ function App() {
 
     try {
       const target = bind.target
+
+      if (target.kind === 'local-tmux') {
+        const self = await apiClient.getDockerSelfContainer()
+        const dockerTabId = `docker-local-tmux-${bind.id}-${Date.now()}`
+        const tmuxCmd = `tmux new -A -s ${target.tmuxSession}\r`
+        const nextTab: SessionTab = {
+          id: dockerTabId,
+          type: 'docker',
+          title: `⚡ ${bind.title}`,
+          websocketUrl: apiClient.getContainerExecWsUrl(self.containerId),
+          containerId: self.containerId,
+          initialInput: tmuxCmd,
+        }
+        setSessions((previous) => [nextTab, ...previous])
+        setActiveSessionId(dockerTabId)
+        setActiveWorkspace('terminal')
+        setStatusLine(`Attached (local): ${bind.title}`)
+        return
+      }
+
       let rawCommand = ''
       let hostId: string | undefined
 
@@ -2131,7 +2151,13 @@ function App() {
             if (session.type === 'docker') {
               return (
                 <div key={session.id} className={`terminal-session ${session.id === activeSessionId ? 'active' : ''}`}>
-                  <ContainerExecTerminal wsUrl={session.websocketUrl} onClose={() => void closeSession(session.id)} apiClient={apiClient} containerId={session.containerId} />
+                  <ContainerExecTerminal
+                    wsUrl={session.websocketUrl}
+                    onClose={() => void closeSession(session.id)}
+                    apiClient={apiClient}
+                    containerId={session.containerId}
+                    initialInput={session.initialInput}
+                  />
                 </div>
               )
             }

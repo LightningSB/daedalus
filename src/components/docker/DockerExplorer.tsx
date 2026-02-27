@@ -50,9 +50,10 @@ type TerminalProps = {
   onClose: () => void
   apiClient?: DockerApiClient
   containerId?: string
+  initialInput?: string
 }
 
-export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }: TerminalProps) {
+export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId, initialInput }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -87,6 +88,13 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }
       term.writeln('\x1b[2m[Connected to container exec...]\x1b[0m')
       if (apiClient) {
         logClient(apiClient, 'info', 'docker-terminal', 'ws_open', { containerId, wsUrl })
+      }
+      if (initialInput) {
+        window.setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: initialInput }))
+          }
+        }, 500)
       }
     }
 
@@ -176,7 +184,7 @@ export function ContainerExecTerminal({ wsUrl, onClose, apiClient, containerId }
       ws.close()
       term.dispose()
     }
-  }, [wsUrl])
+  }, [initialInput, wsUrl])
 
   return (
     <div className="docker-exec-terminal-wrap">

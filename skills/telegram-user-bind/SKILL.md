@@ -35,6 +35,7 @@ Target variants:
 { kind: 'ssh-host', hostId: string, tmuxSession: string }
 { kind: 'ssh-host-docker', hostId: string, containerId: string, tmuxSession: string }
 { kind: 'ssh-raw', rawCommand: string, tmuxSession: string }
+{ kind: 'local-tmux', tmuxSession: string } // runs tmux inside Daedalus backend container
 ```
 
 ## Usage workflow
@@ -60,6 +61,12 @@ bash skills/telegram-user-bind/scripts/create-bind.sh create \
   --kind ssh-host \
   --host-id host-123 \
   --tmux-session main
+
+# Local tmux bind (internal container tmux)
+bash skills/telegram-user-bind/scripts/create-bind.sh create \
+  --title "Local Daedalus tmux" \
+  --kind local-tmux \
+  --tmux-session local-main
 
 # List binds
 bash skills/telegram-user-bind/scripts/create-bind.sh list

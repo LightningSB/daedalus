@@ -79,6 +79,35 @@ export async function inspectContainer(
   };
 }
 
+export async function getSelfContainer(): Promise<{ containerId: string; name: string }> {
+  const hostname = process.env.HOSTNAME?.trim();
+  if (hostname) {
+    try {
+      const info = await docker.getContainer(hostname).inspect();
+      return { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+    } catch {
+      // fallthrough to list lookup
+    }
+
+    try {
+      const containers = await docker.listContainers({ all: true });
+      const match = containers.find((c) =>
+        (c.Id?.startsWith(hostname) ?? false) || (c.Names ?? []).some((n) => n.replace(/^\//, "") === hostname),
+      );
+      if (match?.Id) {
+        return {
+          containerId: match.Id,
+          name: (match.Names?.[0] ?? hostname).replace(/^\//, ""),
+        };
+      }
+    } catch {
+      // fallthrough
+    }
+  }
+
+  throw new Error("Could not resolve current container id");
+}
+
 /** Run a one-shot command in a container and return stdout. */
 async function execOneshot(containerId: string, cmd: string[]): Promise<string> {
   const proc = Bun.spawn(["docker", "exec", containerId, ...cmd], {

@@ -493,6 +493,14 @@ export function createApiClient(userId: string) {
       return Boolean(data.available)
     },
 
+    async getDockerSelfContainer(): Promise<{ containerId: string; name: string }> {
+      const data = await dockerJson<Record<string, unknown>>('/docker/self')
+      const containerId = typeof data.containerId === 'string' ? data.containerId : ''
+      const name = typeof data.name === 'string' ? data.name : 'local'
+      if (!containerId) throw new ApiError('Missing self container id', 500)
+      return { containerId, name }
+    },
+
     async getComposeProjects(): Promise<ComposeProject[]> {
       const data = await dockerJson<{ projects?: unknown[] }>('/docker/compose/projects')
       return (Array.isArray(data.projects) ? data.projects : []) as ComposeProject[]
@@ -829,6 +837,7 @@ export type TmuxBindTarget =
   | { kind: 'ssh-host'; hostId: string; tmuxSession: string }
   | { kind: 'ssh-host-docker'; hostId: string; containerId: string; tmuxSession: string }
   | { kind: 'ssh-raw'; rawCommand: string; tmuxSession: string }
+  | { kind: 'local-tmux'; tmuxSession: string }
 
 export type TmuxBind = {
   id: string

@@ -33,7 +33,7 @@ Actions:
 
 Create options:
   --title <text>                 Bind title (required)
-  --kind <ssh-host|ssh-host-docker|ssh-raw>
+  --kind <ssh-host|ssh-host-docker|ssh-raw|local-tmux>
   --host-id <id>                 Required for ssh-host and ssh-host-docker
   --container-id <id>            Required for ssh-host-docker
   --tmux-session <name>          Default: main
@@ -162,6 +162,10 @@ case "$ACTION" in
           exit 1
         fi
         local_target="{\"kind\":\"ssh-raw\",\"rawCommand\":\"$(json_escape "$RAW_COMMAND")\",\"tmuxSession\":\"$(json_escape "$TMUX_SESSION")\"}"
+        ;;
+
+      local-tmux)
+        local_target="{\"kind\":\"local-tmux\",\"tmuxSession\":\"$(json_escape "$TMUX_SESSION")\"}"
         ;;
 
       *)

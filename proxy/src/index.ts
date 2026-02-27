@@ -639,6 +639,11 @@ const server = Bun.serve<WsSessionData>({
         return ok(request, { available });
       }
 
+      if (pathname === "/api/docker/self" && request.method === "GET") {
+        const self = await dockerService.getSelfContainer();
+        return ok(request, self);
+      }
+
       if (pathname === "/api/docker/compose/projects" && request.method === "GET") {
         const projects = await dockerComposeService.listComposeProjects();
         return ok(request, { projects });
