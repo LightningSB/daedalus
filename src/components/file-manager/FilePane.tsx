@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { FileEntry, SortDir, SortKey } from './utils'
 import { filterEntries, formatBytes, formatDate, pathSegments, sortEntries } from './utils'
 
@@ -25,6 +26,7 @@ type FilePaneProps = {
   onRefresh: () => void
   onActivate: (entry: FileEntry) => void
   onFocus: () => void
+  rightSlot?: ReactNode
 }
 
 export function FilePane({
@@ -43,6 +45,7 @@ export function FilePane({
   onRefresh,
   onActivate,
   onFocus,
+  rightSlot,
 }: FilePaneProps) {
   const segments = pathSegments(state.path)
   const filtered = filterEntries(entries, state.filter)
@@ -53,9 +56,12 @@ export function FilePane({
       <div className="file-pane-header">
         <div className="file-pane-title">
           <span>{title}</span>
-          <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh">
-            ↻
-          </button>
+          <div className="file-pane-title-actions">
+            {rightSlot}
+            <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh">
+              ↻
+            </button>
+          </div>
         </div>
         <div className="file-breadcrumbs">
           {segments.map((segment) => (

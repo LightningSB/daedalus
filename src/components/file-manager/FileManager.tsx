@@ -87,6 +87,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_BREAKPOINT).matches)
   const [isDualPane, setIsDualPane] = useState(() => window.matchMedia(DUAL_PANE_BREAKPOINT).matches)
   const [mobileViewingPreview, setMobileViewingPreview] = useState(false)
+  const [mobilePaneMenuOpen, setMobilePaneMenuOpen] = useState(false)
 
   const isMobileRef = useRef(isMobile)
   isMobileRef.current = isMobile
@@ -149,6 +150,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       setPaneData({})
       setPreviewState({ loading: false })
       setMobileViewingPreview(false)
+      setMobilePaneMenuOpen(false)
       return
     }
 
@@ -273,6 +275,16 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   useEffect(() => {
     if (!hasPreview) setMobileViewingPreview(false)
   }, [hasPreview])
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobilePaneMenuOpen(false)
+    }
+  }, [isMobile])
+
+  useEffect(() => {
+    setMobilePaneMenuOpen(false)
+  }, [activePaneId, mobileViewingPreview])
 
   const refreshActivePane = useCallback(() => {
     if (!activePane) return
@@ -642,6 +654,9 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     return `${pathLabel}${paneLabel}`
   }, [activePane, activePaneIndex, panes.length, sessionTitle])
 
+  const canGoPrevPane = Boolean(activePane && activePaneIndex > 0)
+  const canGoNextPane = Boolean(activePane && activePaneIndex < panes.length - 1)
+
   return (
     <section
       className="file-manager"
@@ -649,23 +664,25 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
-      <div className="file-manager-header">
-        <div className="file-manager-title">
-          <h2>{sessionTitle ?? 'Files'}</h2>
-          <span className="file-manager-sub">{headerSubtitle}</span>
+      {!isMobile && (
+        <div className="file-manager-header">
+          <div className="file-manager-title">
+            <h2>{sessionTitle ?? 'Files'}</h2>
+            <span className="file-manager-sub">{headerSubtitle}</span>
+          </div>
+          <div className="file-manager-actions">
+            <button type="button" onClick={handleUploadClick} disabled={!sessionId}>Upload</button>
+            <button type="button" onClick={handleDownload} disabled={!downloadUrl}>Download</button>
+            <button type="button" onClick={handleNewFolder} disabled={!sessionId}>New Folder</button>
+            <button type="button" onClick={handleRename} disabled={!selectedEntry}>Rename</button>
+            <button type="button" onClick={handleDelete} disabled={!selectedEntry}>Delete</button>
+            <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>Close Pane</button>
+            <button type="button" onClick={() => switchPaneByOffset(-1)} disabled={!canGoPrevPane}>◀</button>
+            <button type="button" onClick={() => switchPaneByOffset(1)} disabled={!canGoNextPane}>▶</button>
+            <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>Refresh</button>
+          </div>
         </div>
-        <div className="file-manager-actions">
-          <button type="button" onClick={handleUploadClick} disabled={!sessionId}>Upload</button>
-          <button type="button" onClick={handleDownload} disabled={!downloadUrl}>Download</button>
-          <button type="button" onClick={handleNewFolder} disabled={!sessionId}>New Folder</button>
-          <button type="button" onClick={handleRename} disabled={!selectedEntry}>Rename</button>
-          <button type="button" onClick={handleDelete} disabled={!selectedEntry}>Delete</button>
-          <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>Close Pane</button>
-          <button type="button" onClick={() => switchPaneByOffset(-1)} disabled={!activePane || activePaneIndex <= 0}>◀</button>
-          <button type="button" onClick={() => switchPaneByOffset(1)} disabled={!activePane || activePaneIndex >= panes.length - 1}>▶</button>
-          <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>Refresh</button>
-        </div>
-      </div>
+      )}
 
       {status && <div className="file-manager-status">{status}</div>}
 
@@ -688,13 +705,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
                 className="fm-mobile-track"
                 style={{ transform: `translateX(-${activeMobileSlotIndex * 100}%)` }}
               >
-                {panes.map((pane, index) => {
+                {panes.map((pane) => {
                   const pData = paneData[pane.id] ?? { entries: [], loading: false, truncated: false }
                   return (
                     <div key={pane.id} className="fm-mobile-slot">
                       <FilePane
                         paneId={pane.id}
-                        title={`Pane ${index + 1} of ${panes.length}`}
+                        title={pane.state.path === '.' ? '~' : pane.state.path}
                         state={pane.state}
                         entries={pData.entries}
                         loading={pData.loading}
@@ -708,6 +725,36 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
                         onRefresh={() => fetchDirectory(pane.id, pane.state.path, true)}
                         onActivate={(entry) => handleActivate(pane.id, entry)}
                         onFocus={() => setActivePaneId(pane.id)}
+                        rightSlot={pane.id === activePane.id ? (
+                          <div className="fm-pane-menu-wrap">
+                            <button
+                              type="button"
+                              className="fm-pane-menu-toggle"
+                              aria-label="Pane actions"
+                              aria-expanded={mobilePaneMenuOpen}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setMobilePaneMenuOpen((open) => !open)
+                              }}
+                            >
+                              <span />
+                              <span />
+                              <span />
+                            </button>
+                            {mobilePaneMenuOpen && (
+                              <div className="fm-pane-menu" onClick={(event) => event.stopPropagation()}>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleUploadClick() }} disabled={!sessionId}>Upload</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); handleDownload() }} disabled={!downloadUrl}>Download</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleNewFolder() }} disabled={!sessionId}>New Folder</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleRename() }} disabled={!selectedEntry}>Rename</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); void handleDelete() }} disabled={!selectedEntry}>Delete</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); closeActivePane() }} disabled={!activePane || panes.length <= 1}>Close Pane</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(-1) }} disabled={!canGoPrevPane}>Prev Pane</button>
+                                <button type="button" onClick={() => { setMobilePaneMenuOpen(false); switchPaneByOffset(1) }} disabled={!canGoNextPane}>Next Pane</button>
+                              </div>
+                            )}
+                          </div>
+                        ) : undefined}
                       />
                     </div>
                   )
@@ -820,14 +867,16 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
         )
       )}
 
-      <div className="file-manager-footer">
-        <span>
-          {activePane ? `Pane ${activePaneIndex + 1}/${panes.length}` : 'No pane'} · {selectedEntry ? selectedEntry.name : 'No selection'}
-        </span>
-        {selectedEntry && selectedEntry.type !== 'dir' && (
-          <span>Size: {formatBytes(selectedEntry.size)}</span>
-        )}
-      </div>
+      {!isMobile && (
+        <div className="file-manager-footer">
+          <span>
+            {activePane ? `Pane ${activePaneIndex + 1}/${panes.length}` : 'No pane'} · {selectedEntry ? selectedEntry.name : 'No selection'}
+          </span>
+          {selectedEntry && selectedEntry.type !== 'dir' && (
+            <span>Size: {formatBytes(selectedEntry.size)}</span>
+          )}
+        </div>
+      )}
 
       <input
         ref={fileInputRef}

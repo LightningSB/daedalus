@@ -1650,11 +1650,16 @@ function App() {
           <div className="top-bar-left">
             <button
               type="button"
-              className="tab icon-toggle"
+              className="sidebar-toggle-btn"
               onClick={() => setSidebarOpen((current) => !current)}
               title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
+              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
             >
-              {sidebarOpen ? '▤' : '☰'}
+              <span className="sidebar-toggle-lines" aria-hidden>
+                <span />
+                <span />
+                <span />
+              </span>
             </button>
           </div>
           <div className="top-bar-center">
@@ -1670,7 +1675,7 @@ function App() {
           </div>
           <div className="top-bar-right">
             {!sidebarOpen && (
-              <div className="brand-lockup topbar-brand" aria-label="Daedalus identity">
+              <div className="topbar-logo-only" aria-label="Daedalus logo">
                 <img
                   src={DAEDALUS_LOGO_URL}
                   alt="Daedalus logo"
@@ -1678,10 +1683,6 @@ function App() {
                   loading="eager"
                   decoding="async"
                 />
-                <div className="brand-copy">
-                  <h1>Daedalus SSH</h1>
-                  <p className="hint">User: {derivedUserId}</p>
-                </div>
               </div>
             )}
           </div>
