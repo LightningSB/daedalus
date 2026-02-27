@@ -471,7 +471,7 @@ export function createApiClient(userId: string) {
     async listDockerContainers(all = false): Promise<DockerContainerSummary[]> {
       const params = new URLSearchParams({ all: all ? 'true' : 'false' })
       const data = await dockerJson<{ containers?: unknown[] }>(`/docker/containers?${params}`)
-      return (Array.isArray(data.containers) ? data.containers : []) as DockerContainerSummary[]
+      return (Array.isArray(data?.containers) ? data.containers : []) as DockerContainerSummary[]
     },
 
     async inspectDockerContainer(id: string): Promise<DockerContainerInfo> {

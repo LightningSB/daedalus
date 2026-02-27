@@ -81,7 +81,13 @@ export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
         } else if (msg.type === 'error') {
           term.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`)
         } else if (msg.type === 'ready') {
-          term.clear()
+          if (ws.readyState === WebSocket.OPEN && termRef.current) {
+            ws.send(JSON.stringify({
+              type: 'resize',
+              cols: termRef.current.cols,
+              rows: termRef.current.rows,
+            }))
+          }
         }
       } catch {
         // ignore

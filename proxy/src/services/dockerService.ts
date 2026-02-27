@@ -25,7 +25,7 @@ export async function listContainers(
   return containers.map((c) => ({
     id: c.Id,
     shortId: c.Id.slice(0, 12),
-    names: c.Names.map((n) => n.replace(/^\//, "")),
+    names: (c.Names ?? []).map((n) => n.replace(/^\//, "")),
     image: c.Image,
     status: c.Status,
     state: c.State,
@@ -322,6 +322,9 @@ export async function attachExecWebSocket(
 
     execSessions.set(execSessionId, { stream, exec });
 
+    // Send ready before piping data to avoid clearing an already-rendered prompt on the client.
+    ws.send(JSON.stringify({ type: "ready" }));
+
     stream.on("data", (chunk: Buffer) => {
       try {
         ws.send(
@@ -355,7 +358,6 @@ export async function attachExecWebSocket(
       }
     });
 
-    ws.send(JSON.stringify({ type: "ready" }));
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Exec failed";
     ws.send(JSON.stringify({ type: "error", message: msg }));
