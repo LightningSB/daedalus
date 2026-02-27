@@ -199,9 +199,10 @@ type FilesProps = {
   containerId: string
   apiClient: DockerApiClient
   onClose: () => void
+  isMobile?: boolean
 }
 
-function ContainerFiles({ containerId, apiClient, onClose }: FilesProps) {
+function ContainerFiles({ containerId, apiClient, onClose, isMobile = false }: FilesProps) {
   const [path, setPath] = useState('/')
   const [entries, setEntries] = useState<DockerFileEntry[]>([])
   const [preview, setPreview] = useState<DockerFilePreview | null>(null)
@@ -268,7 +269,7 @@ function ContainerFiles({ containerId, apiClient, onClose }: FilesProps) {
   }
 
   return (
-    <div className="docker-files-panel">
+    <div className={`docker-files-panel${isMobile ? ' mobile' : ''}`}>
       <div className="docker-files-header">
         <div className="docker-breadcrumb">
           <button type="button" onClick={() => void loadDir('/')} className="docker-bc-seg">
@@ -360,9 +361,10 @@ type DetailProps = {
   apiClient: DockerApiClient
   onClose: () => void
   onOpenExec?: (containerId: string, containerName: string) => void
+  isMobile?: boolean
 }
 
-function ContainerDetail({ container, apiClient, onClose, onOpenExec }: DetailProps) {
+function ContainerDetail({ container, apiClient, onClose, onOpenExec, isMobile = false }: DetailProps) {
   const [view, setView] = useState<'overview' | 'files' | 'terminal'>('overview')
   const [info, setInfo] = useState<DockerContainerInfo | null>(null)
   const [infoLoading, setInfoLoading] = useState(false)
@@ -428,7 +430,7 @@ function ContainerDetail({ container, apiClient, onClose, onOpenExec }: DetailPr
           </span>
         </div>
         <button type="button" className="docker-close-btn" onClick={onClose}>
-          ✕
+          {isMobile ? '← Back' : '✕'}
         </button>
       </div>
 
@@ -583,6 +585,7 @@ function ContainerDetail({ container, apiClient, onClose, onOpenExec }: DetailPr
             containerId={container.id}
             apiClient={apiClient}
             onClose={() => setView('overview')}
+            isMobile={isMobile}
           />
         )}
 
@@ -605,6 +608,7 @@ export function DockerExplorer({ apiClient, onOpenExec }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<DockerContainerSummary | null>(null)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 767px)').matches)
 
   const refresh = useCallback(
     async (all: boolean) => {
@@ -650,6 +654,13 @@ export function DockerExplorer({ apiClient, onOpenExec }: Props) {
   useEffect(() => {
     void refresh(showAll)
   }, [refresh, showAll])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const handle = (event: MediaQueryListEvent) => setIsMobile(event.matches)
+    mq.addEventListener('change', handle)
+    return () => mq.removeEventListener('change', handle)
+  }, [])
 
   const formatCreated = (ts: number) => {
     const d = new Date(ts * 1000)
@@ -702,56 +713,58 @@ export function DockerExplorer({ apiClient, onOpenExec }: Props) {
       {available === null && <p className="docker-hint">Connecting to Docker…</p>}
 
       {available && (
-        <div className="docker-explorer-body">
-          <div className={`docker-container-list${selected ? ' with-detail' : ''}`}>
-            {containers.length === 0 && !loading && (
-              <div className="docker-empty">
-                <span>No containers found.</span>
-                {!showAll && (
-                  <button
-                    type="button"
-                    className="docker-action-btn"
-                    onClick={() => setShowAll(true)}
-                  >
-                    Show stopped containers
-                  </button>
-                )}
-              </div>
-            )}
-            {containers.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`docker-container-card glass-hover${selected?.id === c.id ? ' active' : ''}`}
-                onClick={() => setSelected(selected?.id === c.id ? null : c)}
-              >
-                <div className="docker-card-top">
-                  <span className="docker-card-name">
-                    {c.names[0] ?? c.shortId}
-                  </span>
-                  <span className={`docker-state-badge ${c.state}`}>
-                    {c.state}
-                  </span>
+        <div className={`docker-explorer-body${isMobile ? ' mobile' : ''}`}>
+          {(!isMobile || !selected) && (
+            <div className={`docker-container-list${selected && !isMobile ? ' with-detail' : ''}`}>
+              {containers.length === 0 && !loading && (
+                <div className="docker-empty">
+                  <span>No containers found.</span>
+                  {!showAll && (
+                    <button
+                      type="button"
+                      className="docker-action-btn"
+                      onClick={() => setShowAll(true)}
+                    >
+                      Show stopped containers
+                    </button>
+                  )}
                 </div>
-                <div className="docker-card-image">{c.image}</div>
-                <div className="docker-card-meta">
-                  <span>{c.status}</span>
-                  <span>{formatCreated(c.created)}</span>
-                </div>
-                {c.ports.filter((p) => p.publicPort).length > 0 && (
-                  <div className="docker-card-ports">
-                    {c.ports
-                      .filter((p) => p.publicPort)
-                      .map((p, i) => (
-                        <span key={i} className="docker-port-pill">
-                          {p.publicPort}:{p.privatePort}
-                        </span>
-                      ))}
+              )}
+              {containers.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`docker-container-card glass-hover${selected?.id === c.id ? ' active' : ''}`}
+                  onClick={() => setSelected(selected?.id === c.id ? null : c)}
+                >
+                  <div className="docker-card-top">
+                    <span className="docker-card-name">
+                      {c.names[0] ?? c.shortId}
+                    </span>
+                    <span className={`docker-state-badge ${c.state}`}>
+                      {c.state}
+                    </span>
                   </div>
-                )}
-              </button>
-            ))}
-          </div>
+                  <div className="docker-card-image">{c.image}</div>
+                  <div className="docker-card-meta">
+                    <span>{c.status}</span>
+                    <span>{formatCreated(c.created)}</span>
+                  </div>
+                  {c.ports.filter((p) => p.publicPort).length > 0 && (
+                    <div className="docker-card-ports">
+                      {c.ports
+                        .filter((p) => p.publicPort)
+                        .map((p, i) => (
+                          <span key={i} className="docker-port-pill">
+                            {p.publicPort}:{p.privatePort}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
 
           {selected && (
             <ContainerDetail
@@ -759,6 +772,7 @@ export function DockerExplorer({ apiClient, onOpenExec }: Props) {
               apiClient={apiClient}
               onClose={() => setSelected(null)}
               onOpenExec={onOpenExec}
+              isMobile={isMobile}
             />
           )}
         </div>

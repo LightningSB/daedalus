@@ -2590,3 +2590,146 @@ body {
 .docker-action-btn.small:hover {
   opacity: 0.8;
 }
+
+@media (max-width: 767px) {
+  .docker-explorer {
+    padding: 0.35rem;
+    gap: 0.45rem;
+  }
+
+  .docker-explorer-header {
+    align-items: flex-start;
+    gap: 0.42rem;
+  }
+
+  .docker-explorer-title {
+    font-size: 0.86rem;
+  }
+
+  .docker-explorer-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.32rem;
+  }
+
+  .docker-toggle {
+    font-size: 0.69rem;
+  }
+
+  .docker-action-btn,
+  .docker-close-btn {
+    font-size: 0.68rem;
+    padding: 0.24rem 0.45rem;
+  }
+
+  .docker-explorer-body.mobile {
+    display: block;
+    min-height: 0;
+  }
+
+  .docker-container-list {
+    gap: 0.36rem;
+  }
+
+  .docker-container-card {
+    padding: 0.52rem 0.58rem;
+    border-radius: 0.6rem;
+  }
+
+  .docker-card-name {
+    font-size: 0.78rem;
+  }
+
+  .docker-card-image {
+    font-size: 0.64rem;
+  }
+
+  .docker-card-meta {
+    font-size: 0.62rem;
+    gap: 0.45rem;
+  }
+
+  .docker-port-pill {
+    font-size: 0.58rem;
+    padding: 0.08rem 0.26rem;
+  }
+
+  .docker-detail-panel {
+    border-radius: 0.62rem;
+    min-height: calc(100dvh - 15.5rem);
+  }
+
+  .docker-detail-header {
+    padding: 0.48rem 0.58rem;
+  }
+
+  .docker-detail-name {
+    font-size: 0.78rem;
+    margin-right: 0.3rem;
+  }
+
+  .docker-detail-tabs {
+    padding: 0.2rem 0.3rem 0;
+    gap: 0.12rem;
+  }
+
+  .docker-detail-tab {
+    font-size: 0.68rem;
+    padding: 0.24rem 0.5rem;
+  }
+
+  .docker-overview {
+    padding: 0.5rem;
+    gap: 0.35rem;
+  }
+
+  .docker-meta-table {
+    font-size: 0.68rem;
+  }
+
+  .docker-meta-table td {
+    padding: 0.2rem 0.3rem;
+  }
+
+  .docker-files-panel.mobile .docker-files-header {
+    padding: 0.35rem 0.45rem;
+    gap: 0.35rem;
+  }
+
+  .docker-files-panel.mobile .docker-breadcrumb {
+    font-size: 0.68rem;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .docker-files-panel.mobile .docker-files-body {
+    flex-direction: column;
+  }
+
+  .docker-files-panel.mobile .docker-files-list {
+    min-height: 180px;
+    max-height: 40dvh;
+  }
+
+  .docker-files-panel.mobile .docker-file-row {
+    padding: 0.26rem 0.5rem;
+    font-size: 0.72rem;
+  }
+
+  .docker-files-panel.mobile .docker-file-preview {
+    flex: 0 1 auto;
+    border-left: 0;
+    border-top: 1px solid var(--color-dark-border-subtle);
+    max-height: 38dvh;
+  }
+
+  .docker-files-panel.mobile .docker-preview-meta {
+    padding: 0.34rem 0.5rem;
+    font-size: 0.64rem;
+  }
+
+  .docker-files-panel.mobile .docker-preview-text {
+    padding: 0.34rem 0.5rem;
+    font-size: 0.66rem;
+  }
+}
