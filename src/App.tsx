@@ -15,16 +15,22 @@ import {
   createApiClient,
   type CreateSshSessionResponse,
   type SavedHost,
+  type TmuxBind,
   type TmuxStatus,
   type VaultStatus,
 } from './api/client'
 
 type SessionTab = {
   id: string
-  type: 'ssh' | 'docker'
+  type: 'ssh' | 'docker' | 'tmux-bind'
   title: string
   websocketUrl: string
   containerId?: string
+  // tmux-bind specific fields
+  bindId?: string
+  bind?: TmuxBind
+  attachedSessionId?: string
+  initialInput?: string
 }
 
 type SessionCredentials = {
@@ -570,6 +576,14 @@ function TerminalSession({
 
     socket.onopen = () => {
       void onResizeRef.current(session.id, terminal.cols, terminal.rows)
+      if (session.initialInput) {
+        const cmd = session.initialInput
+        window.setTimeout(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(cmd)
+          }
+        }, 1200)
+      }
     }
 
     socket.onmessage = (event) => {
@@ -997,6 +1011,8 @@ function App() {
   const [emailBusy, setEmailBusy] = useState(false)
   const [emailStatus, setEmailStatus] = useState<string | null>(null)
   const keyFileInputRef = useRef<HTMLInputElement>(null)
+  const eventsWsRef = useRef<WebSocket | null>(null)
+  const [tmuxBindAttachBusy, setTmuxBindAttachBusy] = useState<string | null>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
   const isExternalBrowserMode = derivedUserId === 'local-dev'
@@ -1130,6 +1146,86 @@ function App() {
     }
 
     void restore()
+  }, [apiClient])
+
+  // Load tmux binds on startup and add them as tabs
+  useEffect(() => {
+    void (async () => {
+      try {
+        const binds = await apiClient.listTmuxBinds()
+        if (binds.length === 0) return
+        setSessions((prev) => {
+          const existing = new Set(prev.map((s) => s.id))
+          const newTabs: SessionTab[] = binds
+            .filter((bind) => !existing.has(`tmux-bind-${bind.id}`))
+            .map((bind) => ({
+              id: `tmux-bind-${bind.id}`,
+              type: 'tmux-bind' as const,
+              title: bind.title,
+              websocketUrl: '',
+              bindId: bind.id,
+              bind,
+            }))
+          return [...prev, ...newTabs]
+        })
+      } catch {
+        // ignore bind load errors
+      }
+    })()
+  }, [apiClient])
+
+  // Subscribe to user events WebSocket for realtime bind notifications
+  useEffect(() => {
+    const wsUrl = apiClient.getEventsWebsocketUrl()
+    let ws: WebSocket | null = null
+
+    try {
+      ws = new WebSocket(wsUrl)
+      eventsWsRef.current = ws
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as {
+            type: string
+            bind?: TmuxBind
+            bindId?: string
+          }
+          if (msg.type === 'tmux-bind-created' && msg.bind) {
+            const bind = msg.bind
+            const tab: SessionTab = {
+              id: `tmux-bind-${bind.id}`,
+              type: 'tmux-bind',
+              title: bind.title,
+              websocketUrl: '',
+              bindId: bind.id,
+              bind,
+            }
+            setSessions((prev) => {
+              if (prev.some((s) => s.id === tab.id)) return prev
+              return [...prev, tab]
+            })
+            if (bind.autoFocus) {
+              setActiveSessionId(tab.id)
+              setActiveWorkspace('terminal')
+            }
+            setStatusLine(`New tmux bind: ${bind.title}`)
+          } else if (msg.type === 'tmux-bind-deleted' && msg.bindId) {
+            setSessions((prev) => prev.filter((s) => s.id !== `tmux-bind-${msg.bindId}`))
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      }
+    } catch {
+      // WebSocket may fail in some environments
+    }
+
+    return () => {
+      if (ws) {
+        ws.close()
+        eventsWsRef.current = null
+      }
+    }
   }, [apiClient])
 
   useEffect(() => {
@@ -1275,6 +1371,80 @@ function App() {
       // ignore storage errors
     }
   }, [activeSessionId, apiClient])
+
+  const handleActivateTmuxBind = useCallback(async (tab: SessionTab) => {
+    if (tab.attachedSessionId) {
+      // Already attached — just switch to the tab
+      setActiveSessionId(tab.id)
+      setActiveWorkspace('terminal')
+      return
+    }
+    const bind = tab.bind
+    if (!bind) return
+
+    setTmuxBindAttachBusy(tab.id)
+    setStatusLine(`Attaching tmux session: ${bind.title}...`)
+
+    try {
+      const target = bind.target
+      let rawCommand = ''
+      let hostId: string | undefined
+
+      if (target.kind === 'ssh-host') {
+        hostId = target.hostId
+        rawCommand = `ssh ${target.hostId}`
+      } else if (target.kind === 'ssh-host-docker') {
+        hostId = target.hostId
+        rawCommand = `ssh ${target.hostId}`
+      } else {
+        rawCommand = target.rawCommand
+      }
+
+      const created = await apiClient.createSshSession({
+        rawCommand,
+        hostId,
+        vaultToken: vaultToken ?? undefined,
+      })
+
+      let tmuxCmd: string
+      if (target.kind === 'ssh-host-docker') {
+        tmuxCmd = `docker exec -it ${target.containerId} tmux new -A -s ${target.tmuxSession}\r`
+      } else {
+        tmuxCmd = `tmux new -A -s ${target.tmuxSession}\r`
+      }
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === tab.id
+            ? { ...s, websocketUrl: created.websocketUrl, attachedSessionId: created.sessionId, initialInput: tmuxCmd }
+            : s,
+        ),
+      )
+
+      setStatusLine(`Attached: ${bind.title}`)
+    } catch (error) {
+      setStatusLine(error instanceof ApiError ? `Failed: ${error.message}` : 'Failed to attach tmux session.')
+    } finally {
+      setTmuxBindAttachBusy(null)
+    }
+  }, [apiClient, vaultToken])
+
+  const handleDeleteTmuxBind = useCallback(async (tab: SessionTab) => {
+    if (!tab.bindId) return
+    const confirmed = window.confirm(`Remove tmux bind "${tab.title}"?`)
+    if (!confirmed) return
+
+    try {
+      await apiClient.deleteTmuxBind(tab.bindId)
+      setSessions((prev) => prev.filter((s) => s.id !== tab.id))
+      if (activeSessionId === tab.id) {
+        setActiveSessionId(sessions.filter((s) => s.id !== tab.id)[0]?.id ?? null)
+      }
+      setStatusLine(`Removed bind: ${tab.title}`)
+    } catch (error) {
+      setStatusLine(error instanceof ApiError ? error.message : 'Failed to remove bind.')
+    }
+  }, [activeSessionId, apiClient, sessions])
 
   const handleVaultInit = useCallback(async () => {
     if (!vaultPassphrase.trim()) {
@@ -1743,6 +1913,47 @@ function App() {
             })}
           </nav>
         </div>
+
+        {sessions.some((s) => s.type === 'tmux-bind') && (
+          <div className="sidebar-section">
+            <div className="panel-header">
+              <h2>Tmux Binds</h2>
+            </div>
+            <nav className="hosts-nav">
+              {sessions.filter((s) => s.type === 'tmux-bind').map((tab) => (
+                <div key={tab.id} className="host-nav-item">
+                  <button
+                    type="button"
+                    className="host-nav-launch"
+                    onClick={() => {
+                      setActiveSessionId(tab.id)
+                      setActiveWorkspace('terminal')
+                      if (!tab.attachedSessionId) {
+                        void handleActivateTmuxBind(tab)
+                      }
+                    }}
+                    disabled={tmuxBindAttachBusy === tab.id}
+                  >
+                    <span className="host-dot" style={{ background: tab.attachedSessionId ? '#00d492' : '#888' }} />
+                    <span className="host-meta">
+                      <strong>{tab.title}</strong>
+                      <small>{tab.attachedSessionId ? 'attached' : 'click to attach'}</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="host-nav-delete"
+                    onClick={() => { void handleDeleteTmuxBind(tab) }}
+                    title={`Remove bind ${tab.title}`}
+                    aria-label={`Remove bind ${tab.title}`}
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+            </nav>
+          </div>
+        )}
       </aside>
 
       {sidebarOpen && (
@@ -1849,9 +2060,19 @@ function App() {
               key={session.id}
               type="button"
               className={session.id === activeSessionId && activeWorkspace === 'terminal' ? 'tab active' : 'tab'}
-              onClick={() => { setActiveSessionId(session.id); setActiveWorkspace('terminal') }}
+              onClick={() => {
+                setActiveSessionId(session.id)
+                setActiveWorkspace('terminal')
+                if (session.type === 'tmux-bind' && !session.attachedSessionId) {
+                  void handleActivateTmuxBind(session)
+                }
+              }}
             >
-              <span>{session.type === 'docker' ? `docker · ${session.title}` : session.title}</span>
+              <span>{
+                session.type === 'docker' ? `docker · ${session.title}` :
+                session.type === 'tmux-bind' ? `⚡ ${session.title}` :
+                session.title
+              }</span>
               <button
                 type="button"
                 className="tab-close-btn"
@@ -1912,6 +2133,48 @@ function App() {
                 <div key={session.id} className={`terminal-session ${session.id === activeSessionId ? 'active' : ''}`}>
                   <ContainerExecTerminal wsUrl={session.websocketUrl} onClose={() => void closeSession(session.id)} apiClient={apiClient} containerId={session.containerId} />
                 </div>
+              )
+            }
+            if (session.type === 'tmux-bind') {
+              if (!session.websocketUrl || !session.attachedSessionId) {
+                // Not yet attached — show attach prompt
+                return (
+                  <div key={session.id} className={`terminal-session ${session.id === activeSessionId ? 'active' : ''}`}>
+                    <div className="docker-unavailable">
+                      <span className="docker-unavail-icon">⚡</span>
+                      <h3>{session.title}</h3>
+                      <p className="docker-hint">
+                        {tmuxBindAttachBusy === session.id
+                          ? 'Connecting...'
+                          : 'Click this tab or the sidebar item to attach the tmux session.'}
+                      </p>
+                      {tmuxBindAttachBusy !== session.id && (
+                        <button
+                          type="button"
+                          className="btn-emerald"
+                          onClick={() => { void handleActivateTmuxBind(session) }}
+                        >
+                          Attach
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+              // Attached — render as a regular TerminalSession
+              return (
+                <TerminalSession
+                  key={session.id}
+                  session={session}
+                  isActive={session.id === activeSessionId}
+                  onResize={async (sessionId, cols, rows) => {
+                    try {
+                      await apiClient.resizeSshSession(sessionId, cols, rows)
+                    } catch {
+                      // best effort
+                    }
+                  }}
+                />
               )
             }
             return (
