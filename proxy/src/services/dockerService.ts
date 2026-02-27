@@ -130,6 +130,25 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
       const info = await docker.getContainer(runtimeContainerId).inspect();
       return { containerId: info.Id, name: info.Name.replace(/^\//, "") };
     } catch {
+      // fallthrough to list-based fuzzy match
+    }
+
+    try {
+      const containers = await docker.listContainers({ all: true });
+      const rid = runtimeContainerId.toLowerCase();
+      const match = containers.find((c) => {
+        const id = (c.Id ?? "").toLowerCase();
+        if (!id) return false;
+        // Handle 64-char IDs from /proc and shorter Docker IDs interchangeably.
+        return id.startsWith(rid) || rid.startsWith(id);
+      });
+      if (match?.Id) {
+        return {
+          containerId: match.Id,
+          name: (match.Names?.[0] ?? match.Id.slice(0, 12)).replace(/^\//, ""),
+        };
+      }
+    } catch {
       // fallthrough
     }
   }

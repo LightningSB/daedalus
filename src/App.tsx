@@ -1290,6 +1290,21 @@ function App() {
     return sessions.find((s) => s.type === 'ssh')?.id ?? null
   }, [activeSessionId, sessions])
 
+  const fileSessionId = useMemo(() => {
+    const activeTab = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null
+    if (activeTab?.type === 'ssh') return activeTab.id
+    if (activeTab?.type === 'tmux-bind' && activeTab.attachedSessionId) return activeTab.attachedSessionId
+    return activeSshSessionId
+  }, [activeSessionId, activeSshSessionId, sessions])
+
+  const fileSessionTitle = useMemo(() => {
+    const activeTab = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null
+    if (activeTab?.type === 'ssh') return activeTab.title
+    if (activeTab?.type === 'tmux-bind' && activeTab.attachedSessionId) return `${activeTab.title} (attached)`
+    const fallback = sessions.find((s) => s.id === activeSshSessionId)
+    return fallback?.title
+  }, [activeSessionId, activeSshSessionId, sessions])
+
   // Session-scoped Docker API client — wires Docker ops through the active SSH host.
   const sshDockerApiClient = useMemo(() => {
     if (!activeSshSessionId) return null
@@ -2187,15 +2202,16 @@ function App() {
                   </div>
                 )
               }
-              // Attached — render as a regular TerminalSession
+              // Attached — render as a regular TerminalSession.
+              // IMPORTANT: resize APIs must use the real SSH session id, not the tmux-bind tab id.
               return (
                 <TerminalSession
                   key={session.id}
                   session={session}
                   isActive={session.id === activeSessionId}
-                  onResize={async (sessionId, cols, rows) => {
+                  onResize={async (_tabId, cols, rows) => {
                     try {
-                      await apiClient.resizeSshSession(sessionId, cols, rows)
+                      await apiClient.resizeSshSession(session.attachedSessionId!, cols, rows)
                     } catch {
                       // best effort
                     }
@@ -2221,8 +2237,8 @@ function App() {
         </div>
         <div className={activeWorkspace === 'files' ? 'file-manager-area' : 'file-manager-area hidden'}>
           <FileManager
-            sessionId={activeSessionId ?? undefined}
-            sessionTitle={activeSession?.title}
+            sessionId={fileSessionId ?? undefined}
+            sessionTitle={fileSessionTitle}
             apiClient={apiClient}
           />
         </div>
