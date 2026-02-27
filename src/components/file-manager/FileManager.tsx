@@ -10,7 +10,6 @@ const PREVIEW_MAX_BYTES = 512 * 1024
 const MEDIA_PREVIEW_LIMIT = 20 * 1024 * 1024
 const SWIPE_THRESHOLD_PX = 48
 const MOBILE_BREAKPOINT = '(max-width: 767px)'
-const DUAL_PANE_BREAKPOINT = '(min-width: 900px)'
 
 export type FileManagerProps = {
   sessionId?: string
@@ -85,14 +84,11 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const [previewState, setPreviewState] = useState<PreviewState>({ loading: false })
   const [status, setStatus] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_BREAKPOINT).matches)
-  const [isDualPane, setIsDualPane] = useState(() => window.matchMedia(DUAL_PANE_BREAKPOINT).matches)
   const [mobileViewingPreview, setMobileViewingPreview] = useState(false)
   const [mobilePaneMenuOpen, setMobilePaneMenuOpen] = useState(false)
 
   const isMobileRef = useRef(isMobile)
   isMobileRef.current = isMobile
-  const isDualPaneRef = useRef(isDualPane)
-  isDualPaneRef.current = isDualPane
 
   const sessionStateRef = useRef(new Map<string, { panes: PaneModel[]; activePaneId: string | null }>())
   const cacheRef = useRef(new Map<string, Map<string, CachedDir>>())
@@ -109,17 +105,6 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     const handler = (event: MediaQueryListEvent) => {
       setIsMobile(event.matches)
       isMobileRef.current = event.matches
-    }
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
-
-  // Dual-pane breakpoint listener
-  useEffect(() => {
-    const mq = window.matchMedia(DUAL_PANE_BREAKPOINT)
-    const handler = (event: MediaQueryListEvent) => {
-      setIsDualPane(event.matches)
-      isDualPaneRef.current = event.matches
     }
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
@@ -170,15 +155,6 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     if (!sessionId) return
     sessionStateRef.current.set(sessionId, { panes, activePaneId })
   }, [activePaneId, panes, sessionId])
-
-  // When dual-pane mode is active, always keep at least 2 panes
-  useEffect(() => {
-    if (!isDualPane || !sessionId) return
-    setPanes((prev) => {
-      if (prev.length >= 2) return prev
-      return [...prev, createPane('.')]
-    })
-  }, [isDualPane, sessionId])
 
   useEffect(() => {
     return () => {
@@ -320,13 +296,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       const sourcePane = panes.find((pane) => pane.id === paneId)
       if (!sourcePane) return
       const nextPath = joinPath(sourcePane.state.path, entry.name)
-      if (isDualPaneRef.current) {
-        // In dual-pane mode, navigate within the same pane
-        handleNavigate(paneId, nextPath)
-        return
-      }
       const nextPane = createPane(nextPath)
-      setPanes((previous) => [...previous, nextPane])
+      setPanes((previous) => {
+        if (isMobileRef.current) return [...previous, nextPane]
+        const sourceIndex = previous.findIndex((p) => p.id === paneId)
+        if (sourceIndex === -1) return [...previous, nextPane]
+        return [...previous.slice(0, sourceIndex + 1), nextPane]
+      })
       setActivePaneId(nextPane.id)
       setMobileViewingPreview(false)
       return
@@ -642,7 +618,6 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     }
   }, [activeMobileSlotIndex, hasPreview, mobileViewingPreview, panes])
 
-  const currentPaneData = activePane ? (paneData[activePane.id] ?? { entries: [], loading: false, truncated: false }) : { entries: [], loading: false, truncated: false }
 
   // Header subtitle: current path + pane position
   const headerSubtitle = useMemo(() => {
@@ -799,22 +774,21 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
               )}
             </div>
           </div>
-        ) : isDualPane ? (
-          // Desktop dual-pane: two panes side by side
-          <div className="fm-desktop-dual">
-            {([panes[0], panes[1]] as const).map((pane) => {
-              if (!pane) return null
-              const data = paneData[pane.id] ?? { entries: [], loading: false, truncated: false }
+        ) : (
+          // Desktop multi-pane + optional side preview
+          <div className={`fm-desktop-grid${hasPreview ? ' with-preview' : ''}`}>
+            {panes.map((pane) => {
+              const pData = paneData[pane.id] ?? { entries: [], loading: false, truncated: false }
               return (
                 <FilePane
                   key={pane.id}
                   paneId={pane.id}
                   title={pane.state.path === '.' ? '~' : pane.state.path}
                   state={pane.state}
-                  entries={data.entries}
-                  loading={data.loading}
-                  error={data.error}
-                  truncated={data.truncated}
+                  entries={pData.entries}
+                  loading={pData.loading}
+                  error={pData.error}
+                  truncated={pData.truncated}
                   isActive={pane.id === activePane?.id}
                   onPathChange={(path) => handleNavigate(pane.id, path)}
                   onSelect={(entry) => handleSelect(pane.id, entry)}
@@ -826,27 +800,6 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
                 />
               )
             })}
-          </div>
-        ) : (
-          // Desktop single-pane + optional side preview
-          <div className={`fm-desktop-grid${hasPreview ? ' with-preview' : ''}`}>
-            <FilePane
-              paneId={activePane.id}
-              title={`Pane ${activePaneIndex + 1} of ${panes.length}`}
-              state={activePane.state}
-              entries={currentPaneData.entries}
-              loading={currentPaneData.loading}
-              error={currentPaneData.error}
-              truncated={currentPaneData.truncated}
-              isActive
-              onPathChange={(path) => handleNavigate(activePane.id, path)}
-              onSelect={(entry) => handleSelect(activePane.id, entry)}
-              onFilterChange={(value) => handleFilterChange(activePane.id, value)}
-              onSortChange={(key) => handleSortChange(activePane.id, key)}
-              onRefresh={() => fetchDirectory(activePane.id, activePane.state.path, true)}
-              onActivate={(entry) => handleActivate(activePane.id, entry)}
-              onFocus={() => setActivePaneId(activePane.id)}
-            />
             {/* Preview panel: always in DOM for smooth transition, hidden when no selection */}
             <div className={`fm-preview-panel${hasPreview ? ' visible' : ''}`}>
               <FilePreview
