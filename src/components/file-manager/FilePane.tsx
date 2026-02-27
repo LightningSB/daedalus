@@ -10,7 +10,8 @@ export type FilePaneState = {
 }
 
 type FilePaneProps = {
-  paneId: 'left' | 'right'
+  paneId: string
+  title: string
   state: FilePaneState
   entries: FileEntry[]
   loading: boolean
@@ -28,6 +29,7 @@ type FilePaneProps = {
 
 export function FilePane({
   paneId,
+  title,
   state,
   entries,
   loading,
@@ -50,7 +52,7 @@ export function FilePane({
     <section className={`file-pane ${isActive ? 'active' : ''}`} data-pane={paneId} onClick={onFocus}>
       <div className="file-pane-header">
         <div className="file-pane-title">
-          <span>{paneId === 'left' ? 'Left Pane' : 'Right Pane'}</span>
+          <span>{title}</span>
           <button type="button" className="file-refresh" onClick={onRefresh} title="Refresh">
             ↻
           </button>

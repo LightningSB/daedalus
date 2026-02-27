@@ -583,8 +583,13 @@ body {
 .file-manager-grid {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(220px, 42%);
   gap: 0.6rem;
+  overflow: hidden;
+}
+
+.file-manager-grid.single {
+  grid-template-columns: 1fr;
 }
 
 .file-pane,
@@ -595,6 +600,7 @@ body {
   background: rgba(11, 17, 24, 0.74);
   display: grid;
   grid-template-rows: auto auto 1fr auto;
+  overflow: hidden;
 }
 
 .file-pane.active {
@@ -1174,6 +1180,7 @@ body {
 
   .file-manager-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(170px, 36%);
   }
 
   .file-preview-media.pdf iframe {

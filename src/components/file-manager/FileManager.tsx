@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry, FileStat, PreviewData, SortDir, SortKey } from './utils'
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
+import type { FileEntry, FileStat, PreviewData } from './utils'
 import { dirname, formatBytes, getExtension, isImageExtension, isPdfExtension, joinPath, normalizePath } from './utils'
 import { FilePane, type FilePaneState } from './FilePane'
 import { FilePreview } from './FilePreview'
@@ -8,6 +8,7 @@ const CACHE_TTL_MS = 15000
 const PREVIEW_CHUNK_BYTES = 64 * 1024
 const PREVIEW_MAX_BYTES = 512 * 1024
 const MEDIA_PREVIEW_LIMIT = 20 * 1024 * 1024
+const SWIPE_THRESHOLD_PX = 48
 
 export type FileManagerProps = {
   sessionId?: string
@@ -52,6 +53,11 @@ type CachedDir = {
   fetchedAt: number
 }
 
+type PaneModel = {
+  id: string
+  state: FilePaneState
+}
+
 const defaultPaneState: FilePaneState = {
   path: '.',
   filter: '',
@@ -59,78 +65,106 @@ const defaultPaneState: FilePaneState = {
   sortDir: 'asc',
 }
 
+function createPane(path = '.'): PaneModel {
+  return {
+    id: `pane-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    state: {
+      ...defaultPaneState,
+      path,
+    },
+  }
+}
+
 export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerProps) {
-  const [activePane, setActivePane] = useState<'left' | 'right'>('left')
+  const [panes, setPanes] = useState<PaneModel[]>([createPane('.')])
+  const [activePaneId, setActivePaneId] = useState<string | null>(null)
   const [focused, setFocused] = useState(false)
-  const [paneState, setPaneState] = useState<{ left: FilePaneState; right: FilePaneState }>({
-    left: { ...defaultPaneState },
-    right: { ...defaultPaneState },
-  })
-  const [paneData, setPaneData] = useState<{ left: PaneData; right: PaneData }>({
-    left: { entries: [], loading: false, truncated: false },
-    right: { entries: [], loading: false, truncated: false },
-  })
+  const [paneData, setPaneData] = useState<Record<string, PaneData>>({})
   const [previewState, setPreviewState] = useState<PreviewState>({ loading: false })
   const [status, setStatus] = useState<string | null>(null)
 
-  const sessionStateRef = useRef(new Map<string, { paneState: { left: FilePaneState; right: FilePaneState }; activePane: 'left' | 'right' }>())
+  const sessionStateRef = useRef(new Map<string, { panes: PaneModel[]; activePaneId: string | null }>())
   const cacheRef = useRef(new Map<string, Map<string, CachedDir>>())
-  const abortRef = useRef<{ left?: AbortController; right?: AbortController }>({})
+  const abortRef = useRef<Record<string, AbortController | undefined>>({})
   const previewAbortRef = useRef<AbortController | null>(null)
-  const debounceRef = useRef<{ left?: number; right?: number }>({})
+  const debounceRef = useRef<Record<string, number | undefined>>({})
   const previewDebounceRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const touchStartXRef = useRef<number | null>(null)
+
+  const activePane = useMemo(() => {
+    if (panes.length === 0) return null
+    if (!activePaneId) return panes[0]
+    return panes.find((pane) => pane.id === activePaneId) ?? panes[0]
+  }, [activePaneId, panes])
+
+  const activePaneIndex = useMemo(() => {
+    if (!activePane) return 0
+    return Math.max(0, panes.findIndex((pane) => pane.id === activePane.id))
+  }, [activePane, panes])
+
+  useEffect(() => {
+    if (!activePaneId && panes.length > 0) {
+      setActivePaneId(panes[0].id)
+    }
+  }, [activePaneId, panes])
 
   useEffect(() => {
     if (!sessionId) {
-      setPaneState({ left: { ...defaultPaneState }, right: { ...defaultPaneState } })
-      setPaneData({ left: { entries: [], loading: false, truncated: false }, right: { entries: [], loading: false, truncated: false } })
+      const initial = [createPane('.')]
+      setPanes(initial)
+      setActivePaneId(initial[0].id)
+      setPaneData({})
       setPreviewState({ loading: false })
       return
     }
 
     const saved = sessionStateRef.current.get(sessionId)
-    if (saved) {
-      setPaneState(saved.paneState)
-      setActivePane(saved.activePane)
+    if (saved && saved.panes.length > 0) {
+      setPanes(saved.panes)
+      setActivePaneId(saved.activePaneId ?? saved.panes[0].id)
     } else {
-      setPaneState({ left: { ...defaultPaneState }, right: { ...defaultPaneState } })
-      setActivePane('left')
+      const initial = [createPane('.')]
+      setPanes(initial)
+      setActivePaneId(initial[0].id)
     }
   }, [sessionId])
 
   useEffect(() => {
     if (!sessionId) return
-    sessionStateRef.current.set(sessionId, { paneState, activePane })
-  }, [sessionId, paneState, activePane])
+    sessionStateRef.current.set(sessionId, { panes, activePaneId })
+  }, [activePaneId, panes, sessionId])
 
   useEffect(() => {
     return () => {
-      abortRef.current.left?.abort()
-      abortRef.current.right?.abort()
+      Object.values(abortRef.current).forEach((controller) => controller?.abort())
       previewAbortRef.current?.abort()
-      if (debounceRef.current.left) window.clearTimeout(debounceRef.current.left)
-      if (debounceRef.current.right) window.clearTimeout(debounceRef.current.right)
+      Object.values(debounceRef.current).forEach((timer) => {
+        if (timer) window.clearTimeout(timer)
+      })
       if (previewDebounceRef.current) window.clearTimeout(previewDebounceRef.current)
     }
   }, [])
 
-  const updatePaneState = useCallback((pane: 'left' | 'right', updater: (state: FilePaneState) => FilePaneState) => {
-    setPaneState((prev) => ({
-      ...prev,
-      [pane]: updater(prev[pane]),
-    }))
+  const updatePaneState = useCallback((paneId: string, updater: (state: FilePaneState) => FilePaneState) => {
+    setPanes((previous) => previous.map((pane) => (
+      pane.id === paneId ? { ...pane, state: updater(pane.state) } : pane
+    )))
   }, [])
 
-  const updatePaneData = useCallback((pane: 'left' | 'right', updater: (state: PaneData) => PaneData) => {
-    setPaneData((prev) => ({
-      ...prev,
-      [pane]: updater(prev[pane]),
-    }))
+  const updatePaneData = useCallback((paneId: string, updater: (state: PaneData) => PaneData) => {
+    setPaneData((previous) => {
+      const current = previous[paneId] ?? { entries: [], loading: false, truncated: false }
+      return {
+        ...previous,
+        [paneId]: updater(current),
+      }
+    })
   }, [])
 
-  const fetchDirectory = useCallback((pane: 'left' | 'right', path: string, force = false) => {
+  const fetchDirectory = useCallback((paneId: string, path: string, force = false) => {
     if (!sessionId) return
+
     const normalized = normalizePath(path)
     const sessionCache = cacheRef.current.get(sessionId) ?? new Map<string, CachedDir>()
     cacheRef.current.set(sessionId, sessionCache)
@@ -138,83 +172,108 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     const cached = sessionCache.get(normalized)
     const now = Date.now()
     if (cached && !force && now - cached.fetchedAt < CACHE_TTL_MS) {
-      updatePaneData(pane, (prev) => ({ ...prev, entries: cached.entries, truncated: cached.truncated, loading: false, error: null }))
+      updatePaneData(paneId, () => ({ entries: cached.entries, truncated: cached.truncated, loading: false, error: null }))
       return
     }
 
-    if (debounceRef.current[pane]) {
-      window.clearTimeout(debounceRef.current[pane])
-    }
-    if (abortRef.current[pane]) {
-      abortRef.current[pane]?.abort()
+    if (debounceRef.current[paneId]) {
+      window.clearTimeout(debounceRef.current[paneId])
     }
 
-    updatePaneData(pane, (prev) => ({ ...prev, loading: true, error: null }))
+    abortRef.current[paneId]?.abort()
+
+    updatePaneData(paneId, (prev) => ({ ...prev, loading: true, error: null }))
 
     const controller = new AbortController()
-    abortRef.current[pane] = controller
-    debounceRef.current[pane] = window.setTimeout(() => {
+    abortRef.current[paneId] = controller
+
+    debounceRef.current[paneId] = window.setTimeout(() => {
       apiClient.listSftpDirectory(sessionId, normalized, controller.signal)
         .then((data) => {
           sessionCache.set(normalized, { entries: data.entries, truncated: data.truncated, fetchedAt: Date.now() })
-          updatePaneData(pane, () => ({ entries: data.entries, truncated: data.truncated, loading: false, error: null }))
+          updatePaneData(paneId, () => ({ entries: data.entries, truncated: data.truncated, loading: false, error: null }))
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return
           const message = error instanceof Error ? error.message : 'Failed to load directory.'
-          updatePaneData(pane, (prev) => ({ ...prev, loading: false, error: message }))
+          updatePaneData(paneId, (prev) => ({ ...prev, loading: false, error: message }))
         })
     }, 180)
   }, [apiClient, sessionId, updatePaneData])
 
   useEffect(() => {
     if (!sessionId) return
-    fetchDirectory('left', paneState.left.path)
-  }, [sessionId, paneState.left.path, fetchDirectory])
+    panes.forEach((pane) => {
+      fetchDirectory(pane.id, pane.state.path)
+    })
+  }, [fetchDirectory, panes, sessionId])
 
-  useEffect(() => {
-    if (!sessionId) return
-    fetchDirectory('right', paneState.right.path)
-  }, [sessionId, paneState.right.path, fetchDirectory])
+  const activeEntries = activePane ? (paneData[activePane.id]?.entries ?? []) : []
+  const activeSelection = activePane?.state.selectedPath
 
-  const activeEntries = paneData[activePane].entries
-  const activeSelection = paneState[activePane].selectedPath
   const selectedEntry = useMemo(() => {
     return activeEntries.find((entry) => entry.path === activeSelection) ?? null
   }, [activeEntries, activeSelection])
 
   const refreshActivePane = useCallback(() => {
-    fetchDirectory(activePane, paneState[activePane].path, true)
-  }, [activePane, fetchDirectory, paneState])
+    if (!activePane) return
+    fetchDirectory(activePane.id, activePane.state.path, true)
+  }, [activePane, fetchDirectory])
 
-  const handleNavigate = useCallback((pane: 'left' | 'right', path: string) => {
-    updatePaneState(pane, (prev) => ({ ...prev, path: normalizePath(path), selectedPath: undefined }))
+  const switchPaneByOffset = useCallback((offset: number) => {
+    if (panes.length <= 1 || !activePane) return
+    const currentIndex = panes.findIndex((pane) => pane.id === activePane.id)
+    if (currentIndex < 0) return
+    const nextIndex = currentIndex + offset
+    if (nextIndex < 0 || nextIndex >= panes.length) return
+    setActivePaneId(panes[nextIndex].id)
+  }, [activePane, panes])
+
+  const handleNavigate = useCallback((paneId: string, path: string) => {
+    updatePaneState(paneId, (prev) => ({ ...prev, path: normalizePath(path), selectedPath: undefined }))
   }, [updatePaneState])
 
-  const handleSelect = useCallback((pane: 'left' | 'right', entry: FileEntry | null) => {
-    setActivePane(pane)
-    updatePaneState(pane, (prev) => ({ ...prev, selectedPath: entry?.path }))
+  const handleSelect = useCallback((paneId: string, entry: FileEntry | null) => {
+    setActivePaneId(paneId)
+    updatePaneState(paneId, (prev) => ({ ...prev, selectedPath: entry?.path }))
   }, [updatePaneState])
 
-  const handleActivate = useCallback((pane: 'left' | 'right', entry: FileEntry) => {
-    setActivePane(pane)
+  const handleActivate = useCallback((paneId: string, entry: FileEntry) => {
+    setActivePaneId(paneId)
+
     if (entry.type === 'dir') {
-      handleNavigate(pane, joinPath(paneState[pane].path, entry.name))
-    } else {
-      updatePaneState(pane, (prev) => ({ ...prev, selectedPath: entry.path }))
+      const sourcePane = panes.find((pane) => pane.id === paneId)
+      if (!sourcePane) return
+      const nextPath = joinPath(sourcePane.state.path, entry.name)
+      const nextPane = createPane(nextPath)
+      setPanes((previous) => [...previous, nextPane])
+      setActivePaneId(nextPane.id)
+      setStatus(`Opened pane ${panes.length + 1}: ${nextPath}`)
+      return
     }
-  }, [handleNavigate, paneState, updatePaneState])
 
-  const handleSortChange = useCallback((pane: 'left' | 'right', key: SortKey) => {
-    updatePaneState(pane, (prev) => {
-      const nextDir: SortDir = prev.sortKey === key && prev.sortDir === 'asc' ? 'desc' : 'asc'
+    updatePaneState(paneId, (prev) => ({ ...prev, selectedPath: entry.path }))
+  }, [panes, updatePaneState])
+
+  const handleSortChange = useCallback((paneId: string, key: 'name' | 'size' | 'mtime') => {
+    updatePaneState(paneId, (prev) => {
+      const nextDir = prev.sortKey === key && prev.sortDir === 'asc' ? 'desc' : 'asc'
       return { ...prev, sortKey: key, sortDir: nextDir }
     })
   }, [updatePaneState])
 
-  const handleFilterChange = useCallback((pane: 'left' | 'right', value: string) => {
-    updatePaneState(pane, (prev) => ({ ...prev, filter: value }))
+  const handleFilterChange = useCallback((paneId: string, value: string) => {
+    updatePaneState(paneId, (prev) => ({ ...prev, filter: value }))
   }, [updatePaneState])
+
+  const closeActivePane = useCallback(() => {
+    if (!activePane || panes.length <= 1) return
+    const currentIndex = panes.findIndex((pane) => pane.id === activePane.id)
+    const nextIndex = Math.max(0, currentIndex - 1)
+    const remaining = panes.filter((pane) => pane.id !== activePane.id)
+    setPanes(remaining)
+    setActivePaneId(remaining[nextIndex]?.id ?? remaining[0]?.id ?? null)
+  }, [activePane, panes])
 
   const handleLoadPreview = useCallback((entry: FileEntry | null) => {
     if (!sessionId || !entry) {
@@ -277,10 +336,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   const loadMorePreview = useCallback(() => {
     if (!sessionId || !previewState.entry || !previewState.preview || previewState.preview.kind !== 'text') return
     if (previewState.loading) return
+
     const loadedBytes = previewState.preview.bytesRead
     if (loadedBytes >= PREVIEW_MAX_BYTES) return
+
     const nextOffset = previewState.preview.offset + loadedBytes
     if (nextOffset >= previewState.preview.size) return
+
     const nextLimit = Math.min(PREVIEW_CHUNK_BYTES, PREVIEW_MAX_BYTES - loadedBytes)
     if (nextLimit <= 0) return
 
@@ -314,12 +376,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
 
   useEffect(() => {
     if (!focused) return
+
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return
       }
-      if (!sessionId) return
+      if (!sessionId || !activePane) return
 
       if (event.key === 'F5') {
         event.preventDefault()
@@ -341,20 +404,30 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
         void handleDelete()
       }
 
+      if (event.key === 'ArrowLeft' && event.altKey) {
+        event.preventDefault()
+        switchPaneByOffset(-1)
+      }
+
+      if (event.key === 'ArrowRight' && event.altKey) {
+        event.preventDefault()
+        switchPaneByOffset(1)
+      }
+
       if (event.key === 'Enter' && selectedEntry) {
         event.preventDefault()
-        handleActivate(activePane, selectedEntry)
+        handleActivate(activePane.id, selectedEntry)
       }
 
       if (event.key === 'Backspace') {
         event.preventDefault()
-        handleNavigate(activePane, dirname(paneState[activePane].path))
+        handleNavigate(activePane.id, dirname(activePane.state.path))
       }
     }
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [activePane, focused, handleActivate, handleNavigate, paneState, refreshActivePane, selectedEntry, sessionId])
+  }, [activePane, focused, handleActivate, handleNavigate, refreshActivePane, selectedEntry, sessionId, switchPaneByOffset])
 
   const handleUploadClick = useCallback(() => {
     if (!sessionId) return
@@ -362,8 +435,8 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   }, [sessionId])
 
   const handleUploadFiles = useCallback(async (files: FileList | null) => {
-    if (!sessionId || !files || files.length === 0) return
-    const targetDir = paneState[activePane].path
+    if (!sessionId || !files || files.length === 0 || !activePane) return
+    const targetDir = activePane.state.path
     setStatus(`Uploading ${files.length} file(s)...`)
     try {
       for (const file of Array.from(files)) {
@@ -375,13 +448,13 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : 'Upload failed.')
     }
-  }, [activePane, apiClient, paneState, refreshActivePane, sessionId])
+  }, [activePane, apiClient, refreshActivePane, sessionId])
 
   const handleNewFolder = useCallback(async () => {
-    if (!sessionId) return
+    if (!sessionId || !activePane) return
     const name = window.prompt('New folder name')
     if (!name) return
-    const target = joinPath(paneState[activePane].path, name)
+    const target = joinPath(activePane.state.path, name)
     setStatus('Creating folder...')
     try {
       await apiClient.mkdirSftpPath(sessionId, target)
@@ -390,7 +463,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : 'Failed to create folder.')
     }
-  }, [activePane, apiClient, paneState, refreshActivePane, sessionId])
+  }, [activePane, apiClient, refreshActivePane, sessionId])
 
   const handleRename = useCallback(async () => {
     if (!sessionId || !selectedEntry) return
@@ -409,7 +482,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
   }, [apiClient, refreshActivePane, selectedEntry, sessionId])
 
   const handleDelete = useCallback(async () => {
-    if (!sessionId || !selectedEntry) return
+    if (!sessionId || !selectedEntry || !activePane) return
     const isDir = selectedEntry.type === 'dir'
     const confirmMessage = isDir ? `Delete folder "${selectedEntry.name}" and its contents?` : `Delete "${selectedEntry.name}"?`
     const confirmed = window.confirm(confirmMessage)
@@ -418,7 +491,7 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     try {
       await apiClient.deleteSftpPath(sessionId, selectedEntry.path, isDir)
       setStatus('Deleted.')
-      updatePaneData(activePane, (prev) => ({
+      updatePaneData(activePane.id, (prev) => ({
         ...prev,
         entries: prev.entries.filter((entry) => entry.path !== selectedEntry.path),
       }))
@@ -450,11 +523,31 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
     return previewState.preview.bytesRead < PREVIEW_MAX_BYTES
   }, [previewState.preview])
 
-  const fileManagerClass = `file-manager ${activePane === 'right' ? 'right-active' : 'left-active'}`
+  const handleTouchStart = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    touchStartXRef.current = event.changedTouches[0]?.clientX ?? null
+  }, [])
+
+  const handleTouchEnd = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    const startX = touchStartXRef.current
+    const endX = event.changedTouches[0]?.clientX
+    touchStartXRef.current = null
+    if (startX == null || endX == null) return
+
+    const delta = endX - startX
+    if (Math.abs(delta) < SWIPE_THRESHOLD_PX) return
+
+    if (delta < 0) {
+      switchPaneByOffset(1)
+    } else {
+      switchPaneByOffset(-1)
+    }
+  }, [switchPaneByOffset])
+
+  const currentPaneData = activePane ? (paneData[activePane.id] ?? { entries: [], loading: false, truncated: false }) : { entries: [], loading: false, truncated: false }
 
   return (
     <section
-      className={fileManagerClass}
+      className="file-manager"
       tabIndex={0}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
@@ -465,24 +558,15 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
           <span className="file-manager-sub">{sessionTitle ? `Session: ${sessionTitle}` : 'No active session'}</span>
         </div>
         <div className="file-manager-actions">
-          <button type="button" onClick={handleUploadClick} disabled={!sessionId}>
-            Upload
-          </button>
-          <button type="button" onClick={handleDownload} disabled={!downloadUrl}>
-            Download
-          </button>
-          <button type="button" onClick={handleNewFolder} disabled={!sessionId}>
-            New Folder
-          </button>
-          <button type="button" onClick={handleRename} disabled={!selectedEntry}>
-            Rename
-          </button>
-          <button type="button" onClick={handleDelete} disabled={!selectedEntry}>
-            Delete
-          </button>
-          <button type="button" onClick={refreshActivePane} disabled={!sessionId}>
-            Refresh
-          </button>
+          <button type="button" onClick={handleUploadClick} disabled={!sessionId}>Upload</button>
+          <button type="button" onClick={handleDownload} disabled={!downloadUrl}>Download</button>
+          <button type="button" onClick={handleNewFolder} disabled={!sessionId}>New Folder</button>
+          <button type="button" onClick={handleRename} disabled={!selectedEntry}>Rename</button>
+          <button type="button" onClick={handleDelete} disabled={!selectedEntry}>Delete</button>
+          <button type="button" onClick={closeActivePane} disabled={!activePane || panes.length <= 1}>Close Pane</button>
+          <button type="button" onClick={() => switchPaneByOffset(-1)} disabled={!activePane || activePaneIndex <= 0}>◀</button>
+          <button type="button" onClick={() => switchPaneByOffset(1)} disabled={!activePane || activePaneIndex >= panes.length - 1}>▶</button>
+          <button type="button" onClick={refreshActivePane} disabled={!sessionId || !activePane}>Refresh</button>
         </div>
       </div>
 
@@ -494,40 +578,24 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
         </div>
       )}
 
-      {sessionId && (
-        <div className="file-manager-grid">
+      {sessionId && activePane && (
+        <div className="file-manager-grid single" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
           <FilePane
-            paneId="left"
-            state={paneState.left}
-            entries={paneData.left.entries}
-            loading={paneData.left.loading}
-            error={paneData.left.error}
-            truncated={paneData.left.truncated}
-            isActive={activePane === 'left'}
-            onPathChange={(path) => handleNavigate('left', path)}
-            onSelect={(entry) => handleSelect('left', entry)}
-            onFilterChange={(value) => handleFilterChange('left', value)}
-            onSortChange={(key) => handleSortChange('left', key)}
-            onRefresh={() => fetchDirectory('left', paneState.left.path, true)}
-            onActivate={(entry) => handleActivate('left', entry)}
-            onFocus={() => setActivePane('left')}
-          />
-
-          <FilePane
-            paneId="right"
-            state={paneState.right}
-            entries={paneData.right.entries}
-            loading={paneData.right.loading}
-            error={paneData.right.error}
-            truncated={paneData.right.truncated}
-            isActive={activePane === 'right'}
-            onPathChange={(path) => handleNavigate('right', path)}
-            onSelect={(entry) => handleSelect('right', entry)}
-            onFilterChange={(value) => handleFilterChange('right', value)}
-            onSortChange={(key) => handleSortChange('right', key)}
-            onRefresh={() => fetchDirectory('right', paneState.right.path, true)}
-            onActivate={(entry) => handleActivate('right', entry)}
-            onFocus={() => setActivePane('right')}
+            paneId={activePane.id}
+            title={`Pane ${activePaneIndex + 1} of ${panes.length}`}
+            state={activePane.state}
+            entries={currentPaneData.entries}
+            loading={currentPaneData.loading}
+            error={currentPaneData.error}
+            truncated={currentPaneData.truncated}
+            isActive
+            onPathChange={(path) => handleNavigate(activePane.id, path)}
+            onSelect={(entry) => handleSelect(activePane.id, entry)}
+            onFilterChange={(value) => handleFilterChange(activePane.id, value)}
+            onSortChange={(key) => handleSortChange(activePane.id, key)}
+            onRefresh={() => fetchDirectory(activePane.id, activePane.state.path, true)}
+            onActivate={(entry) => handleActivate(activePane.id, entry)}
+            onFocus={() => setActivePaneId(activePane.id)}
           />
 
           <FilePreview
@@ -545,7 +613,9 @@ export function FileManager({ sessionId, sessionTitle, apiClient }: FileManagerP
       )}
 
       <div className="file-manager-footer">
-        <span>Active pane: {activePane === 'left' ? 'Left' : 'Right'} · {selectedEntry ? selectedEntry.name : 'No selection'}</span>
+        <span>
+          {activePane ? `Pane ${activePaneIndex + 1}/${panes.length}` : 'No pane'} · {selectedEntry ? selectedEntry.name : 'No selection'}
+        </span>
         {selectedEntry && selectedEntry.type !== 'dir' && (
           <span>Size: {formatBytes(selectedEntry.size)}</span>
         )}
