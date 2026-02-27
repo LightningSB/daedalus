@@ -130,4 +130,9 @@ export type SshDockerExecWsData = {
   execSessionId: string;
 };
 
-export type WsSessionData = SshWsData | DockerExecWsData | SshDockerExecWsData;
+export type UserEventsWsData = {
+  kind: 'user-events';
+  userId: string;
+};
+
+export type WsSessionData = SshWsData | DockerExecWsData | SshDockerExecWsData | UserEventsWsData;
