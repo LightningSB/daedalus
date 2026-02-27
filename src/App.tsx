@@ -871,6 +871,7 @@ function extractTelegramUserIdFromContext(): string | null {
 // ---------------------------------------------------------------------------
 
 const VAULT_TOKEN_KEY = 'daedalus:vaultToken'
+const DAEDALUS_LOGO_URL = 'https://minio.wheelbase.io/sb-public/icon-exploration/daedalus-final/daedalus-secure-symbol-daedalus-brand-4k.webp'
 
 function loadStoredVaultToken(): string | null {
   try {
@@ -1537,12 +1538,21 @@ function App() {
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
         <div className="sidebar-top">
-          <div>
-            <h1>Daedalus SSH</h1>
-            <p className="hint">User: {derivedUserId}</p>
-            {derivedUserId === 'local-dev' && (
-              <p className="error">Telegram user not detected; vault profile may be wrong.</p>
-            )}
+          <div className="brand-lockup">
+            <img
+              src={DAEDALUS_LOGO_URL}
+              alt="Daedalus logo"
+              className="brand-logo"
+              loading="eager"
+              decoding="async"
+            />
+            <div className="brand-copy">
+              <h1>Daedalus SSH</h1>
+              <p className="hint">User: {derivedUserId}</p>
+              {derivedUserId === 'local-dev' && (
+                <p className="error">Telegram user not detected; vault profile may be wrong.</p>
+              )}
+            </div>
           </div>
           <div className="sidebar-actions">
             <button
@@ -1659,7 +1669,21 @@ function App() {
             }</span>
           </div>
           <div className="top-bar-right">
-            {/* Optional right-side actions can go here */}
+            {!sidebarOpen && (
+              <div className="brand-lockup topbar-brand" aria-label="Daedalus identity">
+                <img
+                  src={DAEDALUS_LOGO_URL}
+                  alt="Daedalus logo"
+                  className="brand-logo"
+                  loading="eager"
+                  decoding="async"
+                />
+                <div className="brand-copy">
+                  <h1>Daedalus SSH</h1>
+                  <p className="hint">User: {derivedUserId}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
