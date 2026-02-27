@@ -9,6 +9,7 @@ import { FileManager } from './components/file-manager/FileManager'
 import { DockerExplorer, ContainerExecTerminal } from './components/docker/DockerExplorer'
 import { ComposeRunner } from './components/docker/ComposeRunner'
 import { OpenclawCLI } from './components/docker/OpenclawCLI'
+import { MobileRadialControls, type MobileControl } from './components/MobileRadialControls'
 import {
   ApiError,
   createApiClient,
@@ -38,36 +39,6 @@ type ParsedSshCommand = {
   host?: string
   port?: number
 }
-
-type MobileControl = {
-  label: string
-  sequence?: string
-  action?: 'ctrl' | 'paste' | 'hideKeyboard' | 'fontUp' | 'fontDown' | 'fontReset'
-}
-
-const MOBILE_CONTROLS: MobileControl[] = [
-  { label: 'Ctrl', action: 'ctrl' },
-  { label: 'Esc', sequence: '\u001b' },
-  { label: 'Tab', sequence: '\t' },
-  { label: '↑', sequence: '\u001b[A' },
-  { label: '↓', sequence: '\u001b[B' },
-  { label: '←', sequence: '\u001b[D' },
-  { label: '→', sequence: '\u001b[C' },
-  { label: 'PgUp', sequence: '\u001b[5~' },
-  { label: 'PgDn', sequence: '\u001b[6~' },
-  { label: 'Home', sequence: '\u001b[H' },
-  { label: 'End', sequence: '\u001b[F' },
-  { label: 'Ctrl+C', sequence: '\u0003' },
-  { label: 'Ctrl+D', sequence: '\u0004' },
-  { label: 'Ctrl+L', sequence: '\u000c' },
-  { label: 'Ctrl+U', sequence: '\u0015' },
-  { label: 'Ctrl+Z', sequence: '\u001a' },
-  { label: 'A−', action: 'fontDown' },
-  { label: 'A+', action: 'fontUp' },
-  { label: 'A=', action: 'fontReset' },
-  { label: 'Paste', action: 'paste' },
-  { label: 'Hide KB', action: 'hideKeyboard' },
-]
 
 function parseSshCommand(raw: string): ParsedSshCommand {
   const tokens = raw.match(/"[^"]*"|'[^']*'|\S+/g) ?? []
@@ -845,20 +816,7 @@ function TerminalSession({
   return (
     <section className={`terminal-session ${isActive ? 'active' : ''}`}>
       <div ref={containerRef} className="terminal-canvas" />
-      <div className="mobile-controls">
-        {MOBILE_CONTROLS.map((control) => (
-          <button
-            key={control.label}
-            type="button"
-            className={control.action === 'ctrl' && ctrlArmed ? 'control-btn armed' : 'control-btn'}
-            onClick={() => {
-              void handleControlPress(control)
-            }}
-          >
-            {control.label}
-          </button>
-        ))}
-      </div>
+      <MobileRadialControls onControlPress={handleControlPress} ctrlArmed={ctrlArmed} />
     </section>
   )
 }
