@@ -84,12 +84,30 @@ async function resolveContainerIdFromRuntime(): Promise<string | null> {
   const fromEnv = process.env.SELF_CONTAINER_ID?.trim();
   if (fromEnv) return fromEnv;
 
-  const candidates = ["/proc/self/cgroup", "/proc/1/cgroup", "/proc/self/mountinfo"];
-  for (const file of candidates) {
+  // Primary: look for the actual Docker container ID in mountinfo.
+  // Docker bind-mounts /var/lib/docker/containers/<full-id>/resolv.conf (and
+  // /etc/hosts, /etc/hostname) into every container.  This path reliably
+  // contains the 64-char container ID, unlike the overlay2 upperdir which is
+  // also a 64-char hex but is a *layer* ID, not a container ID.
+  try {
+    const mountinfo = await readFile("/proc/self/mountinfo", "utf8");
+    const containerMatch = mountinfo.match(/\/var\/lib\/docker\/containers\/([a-f0-9]{64})\//i);
+    if (containerMatch?.[1]) return containerMatch[1];
+
+    // cgroup v1: container ID appears directly in cgroup paths like
+    // /docker/<id> or /kubepods/.../pod<id>/<id>.
+    const cgroupMatch = mountinfo.match(/\/docker\/([a-f0-9]{64})\b/i);
+    if (cgroupMatch?.[1]) return cgroupMatch[1];
+  } catch {
+    // ignore missing proc files
+  }
+
+  // Fallback: cgroup files (works on cgroup v1, not v2)
+  for (const file of ["/proc/self/cgroup", "/proc/1/cgroup"]) {
     try {
       const raw = await readFile(file, "utf8");
-      const match = raw.match(/[a-f0-9]{64}/i);
-      if (match?.[0]) return match[0];
+      const match = raw.match(/\/docker\/([a-f0-9]{64})\b/i);
+      if (match?.[1]) return match[1];
     } catch {
       // ignore missing proc files
     }
@@ -98,12 +116,47 @@ async function resolveContainerIdFromRuntime(): Promise<string | null> {
   return null;
 }
 
+// Cache the self-container result to avoid repeated expensive lookups and
+// noisy error logs on every request.
+let selfContainerCache: { containerId: string; name: string } | null = null;
+let selfContainerError: Error | null = null;
+let selfContainerResolved = false;
+
+
 export async function getSelfContainer(): Promise<{ containerId: string; name: string }> {
-  const hostname = process.env.HOSTNAME?.trim();
+  // Return cached result (success or failure) to avoid repeated expensive
+  // lookups and log storms when the feature is unavailable.
+  if (selfContainerResolved) {
+    if (selfContainerCache) return selfContainerCache;
+    throw selfContainerError ?? new Error("Could not resolve self container");
+  }
+
+  // env var takes highest precedence (explicit config-driven override)
+  const envId = process.env.SELF_CONTAINER_ID?.trim();
+  if (envId) {
+    try {
+      const info = await docker.getContainer(envId).inspect();
+      selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+      selfContainerResolved = true;
+      return selfContainerCache;
+    } catch {
+      // fallthrough — SELF_CONTAINER_ID set but Docker doesn't know it; keep trying
+    }
+  }
+
+  // Use both the env HOSTNAME and the OS hostname() syscall (they should be
+  // identical inside Docker, but os.hostname() can't be overridden by env).
+  const { hostname: osHostname } = await import("node:os");
+  const envHostname = process.env.HOSTNAME?.trim();
+  const hostname = envHostname || osHostname();
+
   if (hostname) {
+    // Attempt direct inspect (Docker resolves 12-char short IDs).
     try {
       const info = await docker.getContainer(hostname).inspect();
-      return { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+      selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+      selfContainerResolved = true;
+      return selfContainerCache;
     } catch {
       // fallthrough to list lookup
     }
@@ -114,21 +167,28 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
         (c.Id?.startsWith(hostname) ?? false) || (c.Names ?? []).some((n) => n.replace(/^\//, "") === hostname),
       );
       if (match?.Id) {
-        return {
+        selfContainerCache = {
           containerId: match.Id,
           name: (match.Names?.[0] ?? hostname).replace(/^\//, ""),
         };
+        selfContainerResolved = true;
+        return selfContainerCache;
       }
     } catch {
       // fallthrough
     }
   }
 
+  // Use the runtime container ID derived from /proc paths.  The improved
+  // extractor reads the Docker-specific path patterns so it returns the real
+  // container ID rather than an overlay2 layer ID.
   const runtimeContainerId = await resolveContainerIdFromRuntime();
   if (runtimeContainerId) {
     try {
       const info = await docker.getContainer(runtimeContainerId).inspect();
-      return { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+      selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+      selfContainerResolved = true;
+      return selfContainerCache;
     } catch {
       // fallthrough to list-based fuzzy match
     }
@@ -139,21 +199,27 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
       const match = containers.find((c) => {
         const id = (c.Id ?? "").toLowerCase();
         if (!id) return false;
-        // Handle 64-char IDs from /proc and shorter Docker IDs interchangeably.
         return id.startsWith(rid) || rid.startsWith(id);
       });
       if (match?.Id) {
-        return {
+        selfContainerCache = {
           containerId: match.Id,
           name: (match.Names?.[0] ?? match.Id.slice(0, 12)).replace(/^\//, ""),
         };
+        selfContainerResolved = true;
+        return selfContainerCache;
       }
     } catch {
       // fallthrough
     }
   }
 
-  throw new Error(`Could not resolve current container id (hostname=${hostname ?? "n/a"}, runtimeId=${runtimeContainerId ?? "n/a"})`);
+  selfContainerError = new Error(
+    `Could not resolve current container id (hostname=${hostname ?? "n/a"}, runtimeId=${runtimeContainerId ?? "n/a"}). ` +
+    `Set SELF_CONTAINER_ID env var to the full Docker container ID to override.`,
+  );
+  selfContainerResolved = true;
+  throw selfContainerError;
 }
 
 /** Run a one-shot command in a container and return stdout. */

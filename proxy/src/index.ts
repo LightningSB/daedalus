@@ -21,6 +21,10 @@ const sshService = new SshService(store, vault, config.sshAllowedHosts);
 const sshDockerService = new SshDockerService(sshService);
 const magicLinkService = new MagicLinkService(store, config);
 
+// Log-once flags to prevent repeated noise for persistent infra failures.
+let selfContainerSuccessLogged = false;
+let selfContainerFailureLogged = false;
+
 // User-scoped event subscribers (for realtime push)
 const userEventSockets = new Map<string, Set<Bun.ServerWebSocket<unknown>>>();
 
@@ -771,20 +775,30 @@ const server = Bun.serve<WsSessionData>({
       if (pathname === "/api/docker/self" && request.method === "GET") {
         try {
           const self = await dockerService.getSelfContainer();
-          await logServerEvent({
-            category: "docker-self",
-            message: "resolved_self_container",
-            meta: { containerId: self.containerId, name: self.name, hostname: process.env.HOSTNAME ?? null },
-          });
+          // Log only the first successful resolution per process lifetime.
+          if (!selfContainerSuccessLogged) {
+            selfContainerSuccessLogged = true;
+            await logServerEvent({
+              category: "docker-self",
+              message: "resolved_self_container",
+              meta: { containerId: self.containerId, name: self.name, hostname: process.env.HOSTNAME ?? null },
+            });
+          }
           return ok(request, self);
         } catch (error) {
-          await logServerEvent({
-            level: "error",
-            category: "docker-self",
-            message: "resolve_self_container_failed",
-            meta: { hostname: process.env.HOSTNAME ?? null, error: error instanceof Error ? error.message : "unknown" },
-          });
-          throw error;
+          // Log only the first failure per process lifetime to avoid log storms.
+          if (!selfContainerFailureLogged) {
+            selfContainerFailureLogged = true;
+            await logServerEvent({
+              level: "error",
+              category: "docker-self",
+              message: "resolve_self_container_failed",
+              meta: { hostname: process.env.HOSTNAME ?? null, error: error instanceof Error ? error.message : "unknown" },
+            });
+          }
+          // 503 (not 400): this is an infrastructure/config issue, not a bad
+          // client request.  The frontend can surface a more targeted message.
+          return bad(request, error, 503);
         }
       }
 

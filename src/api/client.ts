@@ -494,11 +494,22 @@ export function createApiClient(userId: string) {
     },
 
     async getDockerSelfContainer(): Promise<{ containerId: string; name: string }> {
-      const data = await dockerJson<Record<string, unknown>>('/docker/self')
-      const containerId = typeof data.containerId === 'string' ? data.containerId : ''
-      const name = typeof data.name === 'string' ? data.name : 'local'
-      if (!containerId) throw new ApiError('Missing self container id', 500)
-      return { containerId, name }
+      try {
+        const data = await dockerJson<Record<string, unknown>>('/docker/self')
+        const containerId = typeof data.containerId === 'string' ? data.containerId : ''
+        const name = typeof data.name === 'string' ? data.name : 'local'
+        if (!containerId) throw new ApiError('Missing self container id', 500)
+        return { containerId, name }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 503) {
+          throw new ApiError(
+            'Local tmux is unavailable: proxy cannot identify its own container. ' +
+            'Set SELF_CONTAINER_ID env var in the proxy deployment to fix this.',
+            503,
+          )
+        }
+        throw err
+      }
     },
 
     async getComposeProjects(): Promise<ComposeProject[]> {
