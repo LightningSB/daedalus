@@ -443,6 +443,8 @@ function TerminalSession({
   const socketRef = useRef<WebSocket | null>(null)
   const ctrlArmedRef = useRef(false)
   const [ctrlArmed, setCtrlArmed] = useState(false)
+  const onResizeRef = useRef(onResize)
+  onResizeRef.current = onResize
   const [fontSize, setFontSize] = useState<number>(() => {
     try {
       const stored = window.localStorage.getItem('daedalus:terminalFontSize')
@@ -517,7 +519,7 @@ function TerminalSession({
     socketRef.current = socket
 
     socket.onopen = () => {
-      void onResize(session.id, terminal.cols, terminal.rows)
+      void onResizeRef.current(session.id, terminal.cols, terminal.rows)
     }
 
     socket.onmessage = (event) => {
@@ -608,7 +610,7 @@ function TerminalSession({
     })
 
     const onResizeDisposable = terminal.onResize((event) => {
-      void onResize(session.id, event.cols, event.rows)
+      void onResizeRef.current(session.id, event.cols, event.rows)
     })
 
     return () => {
@@ -620,7 +622,7 @@ function TerminalSession({
       fitAddonRef.current = null
       socketRef.current = null
     }
-  }, [onResize, sendInput, session.id, session.title, session.websocketUrl])
+  }, [sendInput, session.id, session.websocketUrl])
 
   useEffect(() => {
     if (!isActive) return
@@ -647,7 +649,7 @@ function TerminalSession({
       window.setTimeout(() => {
         fitAddon.fit()
         term.refresh(0, Math.max(0, term.rows - 1))
-        void onResize(session.id, term.cols, term.rows)
+        void onResizeRef.current(session.id, term.cols, term.rows)
       }, 50)
     }
 
@@ -664,7 +666,7 @@ function TerminalSession({
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
       window.visualViewport?.removeEventListener('scroll', handleViewportResize)
     }
-  }, [isActive, onResize, session.id])
+  }, [isActive, session.id])
 
   useEffect(() => {
     const term = terminalRef.current
@@ -675,14 +677,14 @@ function TerminalSession({
     term.options.fontSize = next
     fitAddon.fit()
     term.refresh(0, Math.max(0, term.rows - 1))
-    void onResize(session.id, term.cols, term.rows)
+    void onResizeRef.current(session.id, term.cols, term.rows)
 
     try {
       window.localStorage.setItem('daedalus:terminalFontSize', String(next))
     } catch {
       // ignore storage errors
     }
-  }, [fontSize, onResize, session.id])
+  }, [fontSize, session.id])
 
   const handleControlPress = useCallback(async (control: MobileControl) => {
     if (control.action === 'ctrl') {
@@ -1379,6 +1381,15 @@ function App() {
     }
   }, [activeSession?.type, activeSessionId, apiClient])
 
+  useEffect(() => {
+    if (activeSession) {
+      const type = activeSession.type === 'docker' ? 'docker' : 'bash'
+      document.title = `${type} · ${activeSession.title}`
+    } else {
+      document.title = 'Daedalus'
+    }
+  }, [activeSession])
+
   const tmuxLabel = useMemo(() => {
     if (!activeSessionId || activeSession?.type !== 'ssh' || !tmuxStatus) return 'tmux: …'
     if (tmuxStatus.status === 'not-installed') return 'tmux: not installed'
@@ -1569,7 +1580,7 @@ function App() {
             </div>
           </div>
           <div className="top-bar-center">
-            <span className="host-title">Daedalus {derivedUserId === 'local-dev' ? '' : derivedUserId}</span>
+            <span className="host-title">{activeSession ? activeSession.title : 'Daedalus'}</span>
           </div>
           <div className="top-bar-right">
             {/* Optional right-side actions can go here */}
@@ -1633,7 +1644,7 @@ function App() {
               className={session.id === activeSessionId ? 'tab active' : 'tab'}
               onClick={() => setActiveSessionId(session.id)}
             >
-              <span>{session.title}</span>
+              <span>{session.type === 'docker' ? `docker · ${session.title}` : session.title}</span>
               <button
                 type="button"
                 className="tab-close-btn"
