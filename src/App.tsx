@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { useTelegram } from './hooks/useTelegram'
+import { FileManager } from './components/file-manager/FileManager'
 import {
   ApiError,
   createApiClient,
@@ -832,6 +833,7 @@ function App() {
   const [statusLine, setStatusLine] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activeWorkspace, setActiveWorkspace] = useState<'terminal' | 'files'>('terminal')
 
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionCommand, setSessionCommand] = useState('')
@@ -1258,6 +1260,11 @@ function App() {
     return 'status-line status-success'
   }, [statusLine])
 
+  const activeSession = useMemo(() => {
+    if (!activeSessionId) return null
+    return sessions.find((session) => session.id === activeSessionId) ?? null
+  }, [activeSessionId, sessions])
+
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
@@ -1370,6 +1377,20 @@ function App() {
           >
             {sidebarOpen ? '▤' : '☰'}
           </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'terminal' ? 'tab workspace-tab active' : 'tab workspace-tab'}
+            onClick={() => setActiveWorkspace('terminal')}
+          >
+            Terminal
+          </button>
+          <button
+            type="button"
+            className={activeWorkspace === 'files' ? 'tab workspace-tab active' : 'tab workspace-tab'}
+            onClick={() => setActiveWorkspace('files')}
+          >
+            Files
+          </button>
 
           {sessions.map((session) => (
             <button
@@ -1395,7 +1416,7 @@ function App() {
           {sessions.length === 0 && <p className="hint empty-tabs">No active sessions.</p>}
         </div>
 
-        <div className="terminal-area">
+        <div className={activeWorkspace === 'terminal' ? 'terminal-area' : 'terminal-area hidden'}>
           {sessions.length === 0 && (
             <div className="terminal-empty">
               <span className="terminal-empty-logo">Daedalus</span>
@@ -1416,6 +1437,13 @@ function App() {
               }}
             />
           ))}
+        </div>
+        <div className={activeWorkspace === 'files' ? 'file-manager-area' : 'file-manager-area hidden'}>
+          <FileManager
+            sessionId={activeSessionId ?? undefined}
+            sessionTitle={activeSession?.title}
+            apiClient={apiClient}
+          />
         </div>
 
         {statusLine && <p className={statusLineClass}>{statusLine}</p>}

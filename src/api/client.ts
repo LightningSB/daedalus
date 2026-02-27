@@ -69,6 +69,7 @@ type RequestOptions = {
   method?: HttpMethod
   body?: unknown
   vaultToken?: string
+  signal?: AbortSignal
 }
 
 function wsUrlFor(path: string): string {
@@ -106,6 +107,7 @@ export function createApiClient(userId: string) {
       method: options.method ?? 'GET',
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     })
 
     const text = await response.text()
@@ -275,6 +277,103 @@ export function createApiClient(userId: string) {
     async closeSshSession(sessionId: string): Promise<void> {
       await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
+      })
+    },
+
+    async listSftpDirectory(sessionId: string, path: string, signal?: AbortSignal): Promise<{
+      path: string
+      resolvedPath?: string
+      entries: Array<{
+        name: string
+        path: string
+        type: 'file' | 'dir' | 'symlink' | 'other'
+        size: number
+        mtimeMs: number
+        mode: number
+      }>
+      truncated: boolean
+    }> {
+      const params = new URLSearchParams({ path })
+      return await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/list?${params.toString()}`, { signal })
+    },
+
+    async statSftpPath(sessionId: string, path: string, signal?: AbortSignal): Promise<{
+      path: string
+      resolvedPath?: string
+      type: 'file' | 'dir' | 'symlink' | 'other'
+      size: number
+      mtimeMs: number
+      mode: number
+      isSymlink: boolean
+      target?: string
+    }> {
+      const params = new URLSearchParams({ path })
+      return await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/stat?${params.toString()}`, { signal })
+    },
+
+    async previewSftpFile(sessionId: string, path: string, offset: number, limit: number, signal?: AbortSignal): Promise<{
+      path: string
+      size: number
+      offset: number
+      limit: number
+      bytesRead: number
+      truncated: boolean
+      kind: 'text' | 'binary'
+      encoding?: 'utf-8'
+      data?: string
+    }> {
+      const params = new URLSearchParams({
+        path,
+        offset: String(offset),
+        limit: String(limit),
+      })
+      return await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/preview?${params.toString()}`, { signal })
+    },
+
+    getSftpDownloadUrl(sessionId: string, path: string, inline = false): string {
+      const params = new URLSearchParams({ path, inline: inline ? 'true' : 'false' })
+      return `${base}/ssh/sessions/${encodeURIComponent(sessionId)}/fs/download?${params.toString()}`
+    },
+
+    async uploadSftpFile(sessionId: string, path: string, data: Blob, signal?: AbortSignal): Promise<void> {
+      const params = new URLSearchParams({ path })
+      const response = await fetch(`${base}/ssh/sessions/${encodeURIComponent(sessionId)}/fs/upload?${params.toString()}`, {
+        method: 'PUT',
+        body: data,
+        signal,
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        let message = `Upload failed (${response.status})`
+        try {
+          const parsed = JSON.parse(text) as { error?: string }
+          if (parsed.error) message = parsed.error
+        } catch {
+          // ignore
+        }
+        throw new ApiError(message, response.status)
+      }
+    },
+
+    async mkdirSftpPath(sessionId: string, path: string): Promise<void> {
+      await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/mkdir`, {
+        method: 'POST',
+        body: { path },
+      })
+    },
+
+    async renameSftpPath(sessionId: string, from: string, to: string): Promise<void> {
+      await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/rename`, {
+        method: 'POST',
+        body: { from, to },
+      })
+    },
+
+    async deleteSftpPath(sessionId: string, path: string, recursive: boolean): Promise<void> {
+      await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/fs/delete`, {
+        method: 'DELETE',
+        body: { path, recursive },
       })
     },
   }

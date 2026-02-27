@@ -298,6 +298,101 @@ async function handleSshSessionDetail(
   return bad(request, new Error("Method not allowed"), 405);
 }
 
+async function handleSshSessionFs(
+  request: Request,
+  userId: string,
+  sessionId: string,
+  action: "list" | "stat" | "preview" | "download" | "upload" | "mkdir" | "rename" | "delete",
+): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.searchParams.get("path");
+
+  if (action === "list" && request.method === "GET") {
+    if (!path) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    const data = await sshService.listDirectory(userId, sessionId, path);
+    return ok(request, data);
+  }
+
+  if (action === "stat" && request.method === "GET") {
+    if (!path) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    const data = await sshService.statPath(userId, sessionId, path);
+    return ok(request, data);
+  }
+
+  if (action === "preview" && request.method === "GET") {
+    if (!path) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    const offsetRaw = Number(url.searchParams.get("offset") ?? 0);
+    const limitRaw = Number(url.searchParams.get("limit") ?? 0);
+    const offset = Number.isFinite(offsetRaw) ? offsetRaw : 0;
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 0;
+    const data = await sshService.readPreview(userId, sessionId, path, offset, limit);
+    return ok(request, data);
+  }
+
+  if (action === "download" && request.method === "GET") {
+    if (!path) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    const inline = url.searchParams.get("inline") === "true" || url.searchParams.get("inline") === "1";
+    const data = await sshService.createDownload(userId, sessionId, path);
+    const headers = new Headers({
+      "content-type": data.mimeType,
+      "content-length": String(data.size),
+      "content-disposition": `${inline ? "inline" : "attachment"}; filename="${data.filename.replace(/"/g, "")}"`,
+    });
+    return withCors(new Response(data.stream, { status: 200, headers }), request);
+  }
+
+  if (action === "upload" && request.method === "PUT") {
+    if (!path) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    if (!request.body) {
+      return bad(request, new Error("Upload body required"), 400);
+    }
+    const data = await request.arrayBuffer();
+    const out = await sshService.uploadFile(userId, sessionId, path, data);
+    return ok(request, { ok: true, size: out.size }, 201);
+  }
+
+  if (action === "mkdir" && request.method === "POST") {
+    const body = await readJson<{ path?: string }>(request);
+    const target = body.path ?? path;
+    if (!target) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    await sshService.mkdir(userId, sessionId, target);
+    return ok(request, { ok: true }, 201);
+  }
+
+  if (action === "rename" && request.method === "POST") {
+    const body = await readJson<{ from?: string; to?: string }>(request);
+    if (!body.from || !body.to) {
+      return bad(request, new Error("Both from and to are required"), 400);
+    }
+    await sshService.rename(userId, sessionId, body.from, body.to);
+    return ok(request, { ok: true });
+  }
+
+  if (action === "delete" && request.method === "DELETE") {
+    const body = await readJson<{ path?: string; recursive?: boolean }>(request);
+    const target = body.path ?? path;
+    if (!target) {
+      return bad(request, new Error("Path is required"), 400);
+    }
+    await sshService.deletePath(userId, sessionId, target, Boolean(body.recursive));
+    return ok(request, { ok: true });
+  }
+
+  return bad(request, new Error("Method not allowed"), 405);
+}
+
 const server = Bun.serve<{ userId: string; sessionId: string }>({
   port: config.port,
   fetch: async (request, serverInstance) => {
@@ -365,6 +460,16 @@ const server = Bun.serve<{ userId: string; sessionId: string }>({
           decodeURIComponent(match[1]),
           decodeURIComponent(match[2]),
           match[3] as "resize" | "close",
+        );
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/fs\/(list|stat|preview|download|upload|mkdir|rename|delete)$/);
+      if (match) {
+        return await handleSshSessionFs(
+          request,
+          decodeURIComponent(match[1]),
+          decodeURIComponent(match[2]),
+          match[3] as "list" | "stat" | "preview" | "download" | "upload" | "mkdir" | "rename" | "delete",
         );
       }
 

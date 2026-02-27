@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import net, { type AddressInfo } from "node:net";
-import { Client, type ClientChannel, type ConnectConfig } from "ssh2";
+import { posix as pathPosix } from "node:path";
+import { Client, type ClientChannel, type ConnectConfig, type OpenMode, type SFTPWrapper, type Stats } from "ssh2";
 import socksv5 from "socksv5";
 import { MinioStore, type AuditEvent, type KnownHostsMap, type StoredSecret } from "../storage/minioStore";
 import { VaultService } from "./vaultService";
@@ -41,6 +42,8 @@ type Session = {
   dynamicServers: net.Server[];
   remoteMappings: Array<RemoteForward>;
   sockets: Set<Bun.ServerWebSocket<SessionSocketData>>;
+  sftp?: SFTPWrapper;
+  sftpPromise?: Promise<SFTPWrapper>;
 };
 
 export type CreateSessionInput = {
@@ -57,6 +60,265 @@ export type CreateSessionInput = {
   rows?: number;
   vaultToken?: string;
 };
+
+export type SftpEntry = {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "symlink" | "other";
+  size: number;
+  mtimeMs: number;
+  mode: number;
+  target?: string;
+};
+
+export type SftpStat = {
+  path: string;
+  resolvedPath?: string;
+  type: "file" | "dir" | "symlink" | "other";
+  size: number;
+  mtimeMs: number;
+  mode: number;
+  isSymlink: boolean;
+  target?: string;
+};
+
+export type SftpPreview = {
+  path: string;
+  size: number;
+  offset: number;
+  limit: number;
+  bytesRead: number;
+  truncated: boolean;
+  kind: "text" | "binary";
+  encoding?: "utf-8";
+  data?: string;
+};
+
+export type SftpDownload = {
+  filename: string;
+  size: number;
+  mimeType: string;
+  stream: ReadableStream<Uint8Array>;
+};
+
+const MAX_PREVIEW_BYTES = 256 * 1024;
+const MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_LIST_ENTRIES = 5000;
+const MAX_SYMLINK_DEPTH = 12;
+const MAX_DELETE_DEPTH = 24;
+
+type SftpDirEntry = { filename: string; longname: string; attrs: Stats };
+
+function normalizeRemotePath(input: string | undefined | null): string {
+  const raw = (input ?? "").trim();
+  if (!raw) {
+    return ".";
+  }
+  if (raw.includes("\0")) {
+    throw new Error("Invalid path");
+  }
+  const sanitized = raw.replace(/\\/g, "/");
+  if (sanitized.startsWith("~")) {
+    return sanitized;
+  }
+  const normalized = pathPosix.normalize(sanitized);
+  return normalized.length ? normalized : ".";
+}
+
+function statKind(stats: Stats): "file" | "dir" | "symlink" | "other" {
+  if (stats.isDirectory()) {
+    return "dir";
+  }
+  if (stats.isFile()) {
+    return "file";
+  }
+  if (stats.isSymbolicLink()) {
+    return "symlink";
+  }
+  return "other";
+}
+
+function toMtimeMs(stats: Stats): number {
+  if (typeof stats.mtime === "number") {
+    return stats.mtime * 1000;
+  }
+  return 0;
+}
+
+function isProbablyText(buffer: Buffer): boolean {
+  if (!buffer.length) {
+    return true;
+  }
+  const sample = buffer.subarray(0, Math.min(buffer.length, 2048));
+  let suspicious = 0;
+  for (const byte of sample) {
+    if (byte === 0) {
+      return false;
+    }
+    if (byte < 7 || (byte > 14 && byte < 32)) {
+      suspicious += 1;
+    }
+  }
+  return suspicious / sample.length < 0.15;
+}
+
+function guessMimeType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain; charset=utf-8";
+  if (lower.endsWith(".json")) return "application/json; charset=utf-8";
+  if (lower.endsWith(".md")) return "text/markdown; charset=utf-8";
+  return "application/octet-stream";
+}
+
+function sftpStat(sftp: SFTPWrapper, path: string): Promise<Stats> {
+  return new Promise((resolve, reject) => {
+    sftp.stat(path, (error, stats) => {
+      if (error || !stats) {
+        reject(error ?? new Error("Stat failed"));
+        return;
+      }
+      resolve(stats);
+    });
+  });
+}
+
+function sftpLstat(sftp: SFTPWrapper, path: string): Promise<Stats> {
+  return new Promise((resolve, reject) => {
+    sftp.lstat(path, (error, stats) => {
+      if (error || !stats) {
+        reject(error ?? new Error("Lstat failed"));
+        return;
+      }
+      resolve(stats);
+    });
+  });
+}
+
+function sftpReadlink(sftp: SFTPWrapper, path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    sftp.readlink(path, (error, target) => {
+      if (error || !target) {
+        reject(error ?? new Error("Readlink failed"));
+        return;
+      }
+      resolve(target);
+    });
+  });
+}
+
+function sftpReaddir(sftp: SFTPWrapper, path: string): Promise<SftpDirEntry[]> {
+  return new Promise((resolve, reject) => {
+    sftp.readdir(path, (error, list) => {
+      if (error || !list) {
+        reject(error ?? new Error("Readdir failed"));
+        return;
+      }
+      resolve(list as SftpDirEntry[]);
+    });
+  });
+}
+
+function sftpOpen(sftp: SFTPWrapper, path: string, flags: OpenMode): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    sftp.open(path, flags, (error, handle) => {
+      if (error || !handle) {
+        reject(error ?? new Error("Open failed"));
+        return;
+      }
+      resolve(handle);
+    });
+  });
+}
+
+function sftpRead(
+  sftp: SFTPWrapper,
+  handle: Buffer,
+  buffer: Buffer,
+  offset: number,
+  length: number,
+  position: number,
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    sftp.read(handle, buffer, offset, length, position, (error, bytesRead) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(bytesRead ?? 0);
+    });
+  });
+}
+
+function sftpWrite(
+  sftp: SFTPWrapper,
+  handle: Buffer,
+  buffer: Buffer,
+  offset: number,
+  length: number,
+  position: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.write(handle, buffer, offset, length, position, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function sftpClose(sftp: SFTPWrapper, handle: Buffer): Promise<void> {
+  return new Promise((resolve) => {
+    sftp.close(handle, () => resolve());
+  });
+}
+
+async function resolveSymlinkChain(
+  sftp: SFTPWrapper,
+  inputPath: string,
+): Promise<{ resolvedPath: string; lstat: Stats; target?: string }> {
+  let current = inputPath;
+  let lstat = await sftpLstat(sftp, current);
+  if (!lstat.isSymbolicLink()) {
+    return { resolvedPath: current, lstat };
+  }
+
+  const visited = new Set<string>();
+  let firstTarget: string | undefined;
+
+  for (let depth = 0; depth < MAX_SYMLINK_DEPTH; depth += 1) {
+    if (!lstat.isSymbolicLink()) {
+      return { resolvedPath: current, lstat, target: firstTarget };
+    }
+
+    if (visited.has(current)) {
+      throw new Error("Symlink loop detected");
+    }
+    visited.add(current);
+
+    const target = await sftpReadlink(sftp, current);
+    if (!firstTarget) {
+      firstTarget = target;
+    }
+
+    if (target.startsWith("/") || target.startsWith("~")) {
+      current = normalizeRemotePath(target);
+    } else {
+      current = normalizeRemotePath(pathPosix.resolve(pathPosix.dirname(current), target));
+    }
+    lstat = await sftpLstat(sftp, current);
+  }
+
+  throw new Error("Symlink resolution depth exceeded");
+}
 
 function toFingerprint(key: Buffer): string {
   return `SHA256:${createHash("sha256").update(key).digest("base64")}`;
@@ -139,6 +401,45 @@ export class SshService {
         ws.close();
       }
     }
+  }
+
+  private async getSftp(session: Session): Promise<SFTPWrapper> {
+    if (!session.connected) {
+      throw new Error("Session is not connected");
+    }
+    if (session.sftp) {
+      return session.sftp;
+    }
+    if (session.sftpPromise) {
+      return session.sftpPromise;
+    }
+
+    session.sftpPromise = new Promise<SFTPWrapper>((resolve, reject) => {
+      session.conn.sftp((error, sftp) => {
+        if (error || !sftp) {
+          session.sftpPromise = undefined;
+          reject(error ?? new Error("SFTP initialization failed"));
+          return;
+        }
+
+        const clear = () => {
+          if (session.sftp === sftp) {
+            session.sftp = undefined;
+          }
+          if (session.sftpPromise) {
+            session.sftpPromise = undefined;
+          }
+        };
+
+        sftp.once("close", clear);
+        sftp.once("end", clear);
+        session.sftp = sftp;
+        session.sftpPromise = undefined;
+        resolve(sftp);
+      });
+    });
+
+    return session.sftpPromise;
   }
 
   private async setupLocalForward(session: Session, forward: LocalForward): Promise<void> {
@@ -531,6 +832,307 @@ export class SshService {
     session.shell.setWindow(rows, cols, rows, cols);
   }
 
+  async listDirectory(userId: string, sessionId: string, rawPath: string | null): Promise<{ path: string; resolvedPath?: string; entries: SftpEntry[]; truncated: boolean }> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+
+    let resolvedPath = path;
+    const lstat = await sftpLstat(sftp, path);
+    if (lstat.isSymbolicLink()) {
+      const resolved = await resolveSymlinkChain(sftp, path);
+      resolvedPath = resolved.resolvedPath;
+    }
+
+    const stats = await sftpStat(sftp, resolvedPath);
+    if (!stats.isDirectory()) {
+      throw new Error("Path is not a directory");
+    }
+
+    const list = await sftpReaddir(sftp, resolvedPath);
+    const entries: SftpEntry[] = list.slice(0, MAX_LIST_ENTRIES).map((entry) => {
+      const entryPath = normalizeRemotePath(pathPosix.join(resolvedPath, entry.filename));
+      return {
+        name: entry.filename,
+        path: entryPath,
+        type: statKind(entry.attrs),
+        size: entry.attrs.size ?? 0,
+        mtimeMs: toMtimeMs(entry.attrs),
+        mode: entry.attrs.mode ?? 0,
+      };
+    });
+
+    return {
+      path,
+      resolvedPath: resolvedPath !== path ? resolvedPath : undefined,
+      entries,
+      truncated: list.length > MAX_LIST_ENTRIES,
+    };
+  }
+
+  async statPath(userId: string, sessionId: string, rawPath: string | null): Promise<SftpStat> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+
+    const lstat = await sftpLstat(sftp, path);
+    if (!lstat.isSymbolicLink()) {
+      return {
+        path,
+        type: statKind(lstat),
+        size: lstat.size ?? 0,
+        mtimeMs: toMtimeMs(lstat),
+        mode: lstat.mode ?? 0,
+        isSymlink: false,
+      };
+    }
+
+    const resolved = await resolveSymlinkChain(sftp, path);
+    let resolvedStats: Stats | null = null;
+    try {
+      resolvedStats = await sftpStat(sftp, resolved.resolvedPath);
+    } catch {
+      resolvedStats = null;
+    }
+
+    const stats = resolvedStats ?? lstat;
+
+    return {
+      path,
+      resolvedPath: resolved.resolvedPath,
+      type: resolvedStats ? statKind(stats) : "symlink",
+      size: stats.size ?? 0,
+      mtimeMs: toMtimeMs(stats),
+      mode: stats.mode ?? 0,
+      isSymlink: true,
+      target: resolved.target,
+    };
+  }
+
+  async readPreview(
+    userId: string,
+    sessionId: string,
+    rawPath: string | null,
+    offset: number,
+    limit: number,
+  ): Promise<SftpPreview> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+
+    const resolved = await resolveSymlinkChain(sftp, path);
+    const stats = await sftpStat(sftp, resolved.resolvedPath);
+    if (!stats.isFile()) {
+      throw new Error("Path is not a file");
+    }
+
+    const size = stats.size ?? 0;
+    const safeOffset = Math.max(0, offset);
+    const safeLimit = Math.max(0, Math.min(limit || MAX_PREVIEW_BYTES, MAX_PREVIEW_BYTES));
+    const remaining = Math.max(0, size - safeOffset);
+    const length = Math.min(safeLimit, remaining);
+
+    if (length === 0) {
+      return {
+        path,
+        size,
+        offset: safeOffset,
+        limit: safeLimit,
+        bytesRead: 0,
+        truncated: safeOffset < size,
+        kind: "text",
+        encoding: "utf-8",
+        data: "",
+      };
+    }
+
+    const handle = await sftpOpen(sftp, resolved.resolvedPath, "r");
+    try {
+      const buffer = Buffer.alloc(length);
+      const bytesRead = await sftpRead(sftp, handle, buffer, 0, length, safeOffset);
+      const data = buffer.subarray(0, bytesRead);
+      const isText = isProbablyText(data);
+      const truncated = safeOffset + bytesRead < size;
+
+      if (!isText) {
+        return {
+          path,
+          size,
+          offset: safeOffset,
+          limit: safeLimit,
+          bytesRead,
+          truncated,
+          kind: "binary",
+        };
+      }
+
+      return {
+        path,
+        size,
+        offset: safeOffset,
+        limit: safeLimit,
+        bytesRead,
+        truncated,
+        kind: "text",
+        encoding: "utf-8",
+        data: data.toString("utf8"),
+      };
+    } finally {
+      await sftpClose(sftp, handle);
+    }
+  }
+
+  async createDownload(
+    userId: string,
+    sessionId: string,
+    rawPath: string | null,
+  ): Promise<SftpDownload> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+    const resolved = await resolveSymlinkChain(sftp, path);
+    const stats = await sftpStat(sftp, resolved.resolvedPath);
+    if (!stats.isFile()) {
+      throw new Error("Path is not a file");
+    }
+    const size = stats.size ?? 0;
+    if (size > MAX_DOWNLOAD_BYTES) {
+      throw new Error(`File exceeds download limit (${Math.round(MAX_DOWNLOAD_BYTES / (1024 * 1024))}MB)`);
+    }
+
+    const filename = pathPosix.basename(resolved.resolvedPath);
+    const mimeType = guessMimeType(filename);
+    const nodeStream = sftp.createReadStream(resolved.resolvedPath);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        nodeStream.on("data", (chunk: Buffer) => {
+          controller.enqueue(new Uint8Array(chunk));
+        });
+        nodeStream.on("end", () => controller.close());
+        nodeStream.on("error", (error: Error) => controller.error(error));
+      },
+      cancel() {
+        nodeStream.destroy();
+      },
+    });
+
+    return {
+      filename,
+      size,
+      mimeType,
+      stream,
+    };
+  }
+
+  async uploadFile(userId: string, sessionId: string, rawPath: string | null, data: ArrayBuffer): Promise<{ size: number }> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+    const buffer = Buffer.from(data);
+    if (buffer.length > MAX_UPLOAD_BYTES) {
+      throw new Error(`Upload exceeds limit (${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))}MB)`);
+    }
+
+    const handle = await sftpOpen(sftp, path, "w");
+    try {
+      await sftpWrite(sftp, handle, buffer, 0, buffer.length, 0);
+      return { size: buffer.length };
+    } finally {
+      await sftpClose(sftp, handle);
+    }
+  }
+
+  async mkdir(userId: string, sessionId: string, rawPath: string | null): Promise<void> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+    await new Promise<void>((resolve, reject) => {
+      sftp.mkdir(path, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  async rename(userId: string, sessionId: string, fromPath: string | null, toPath: string | null): Promise<void> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const from = normalizeRemotePath(fromPath);
+    const to = normalizeRemotePath(toPath);
+    await new Promise<void>((resolve, reject) => {
+      sftp.rename(from, to, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  async deletePath(userId: string, sessionId: string, rawPath: string | null, recursive: boolean): Promise<void> {
+    const session = this.getSession(userId, sessionId);
+    const sftp = await this.getSftp(session);
+    const path = normalizeRemotePath(rawPath);
+    await this.deletePathInternal(sftp, path, recursive, 0);
+  }
+
+  private async deletePathInternal(sftp: SFTPWrapper, path: string, recursive: boolean, depth: number): Promise<void> {
+    if (depth > MAX_DELETE_DEPTH) {
+      throw new Error("Delete depth exceeded");
+    }
+
+    const lstat = await sftpLstat(sftp, path);
+    if (lstat.isSymbolicLink() || lstat.isFile()) {
+      await new Promise<void>((resolve, reject) => {
+        sftp.unlink(path, (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      return;
+    }
+
+    if (lstat.isDirectory()) {
+      if (!recursive) {
+        await new Promise<void>((resolve, reject) => {
+          sftp.rmdir(path, (error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+        return;
+      }
+
+      const entries = await sftpReaddir(sftp, path);
+      for (const entry of entries) {
+        const child = normalizeRemotePath(pathPosix.join(path, entry.filename));
+        await this.deletePathInternal(sftp, child, true, depth + 1);
+      }
+      await new Promise<void>((resolve, reject) => {
+        sftp.rmdir(path, (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      return;
+    }
+
+    throw new Error("Unsupported path type");
+  }
+
   async closeSession(userId: string, sessionId: string): Promise<void> {
     const session = this.getSession(userId, sessionId);
     session.connected = false;
@@ -559,6 +1161,16 @@ export class SshService {
         session.conn.unforwardIn(forward.bindHost, forward.bindPort, () => resolve());
       });
     }
+
+    if (session.sftp) {
+      try {
+        session.sftp.end();
+      } catch {
+        // ignore sftp close errors
+      }
+    }
+    session.sftp = undefined;
+    session.sftpPromise = undefined;
 
     session.shell.end();
     session.conn.end();
