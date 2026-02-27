@@ -12,7 +12,7 @@ import {
   type LocalForward,
   type RemoteForward,
 } from "../utils/sshCommandParser";
-import type { TmuxStatus, TmuxSession } from "../types/docker";
+import type { TmuxStatus, TmuxSession, WsSessionData } from "../types/docker";
 
 export type SessionSummary = {
   id: string;
@@ -405,6 +405,7 @@ function parseTmuxOutput(stdout: string, stderr: string, code: number): TmuxStat
 
 export class SshService {
   private readonly sessions = new Map<string, Session>();
+  private readonly execChannels = new Map<string, ClientChannel>();
 
   constructor(
     private readonly store: MinioStore,
@@ -1293,5 +1294,180 @@ export class SshService {
       host: session.host,
       port: session.port,
     });
+  }
+
+  /**
+   * Run a command on the SSH host and stream stdout/stderr line-by-line to callbacks.
+   * Returns the exit code when the command completes.
+   */
+  execStream(
+    userId: string,
+    sessionId: string,
+    command: string,
+    onStdout: (data: string) => void,
+    onStderr: (data: string) => void,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    const session = this.getSession(userId, sessionId);
+    if (!session.connected) {
+      return Promise.reject(new Error("Session is not connected"));
+    }
+
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Aborted"));
+        return;
+      }
+
+      session.conn.exec(command, (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        let closed = false;
+
+        const onAbort = () => {
+          if (!closed) {
+            closed = true;
+            try { stream.end(); } catch { /* ignore */ }
+            resolve(-1);
+          }
+        };
+
+        signal?.addEventListener("abort", onAbort);
+
+        stream.on("data", (data: Buffer) => {
+          onStdout(data.toString("utf8"));
+        });
+
+        stream.stderr.on("data", (data: Buffer) => {
+          onStderr(data.toString("utf8"));
+        });
+
+        stream.on("close", (code: number | null) => {
+          closed = true;
+          signal?.removeEventListener("abort", onAbort);
+          resolve(code ?? -1);
+        });
+
+        stream.on("error", (error: Error) => {
+          closed = true;
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        });
+      });
+    });
+  }
+
+  /**
+   * Open an interactive exec channel over SSH for a docker container shell.
+   * Streams I/O through the provided WebSocket in the same base64 wire format
+   * as the local Docker exec WebSocket.
+   */
+  async attachSshExecWebSocket(
+    userId: string,
+    sessionId: string,
+    containerId: string,
+    execSessionId: string,
+    ws: Bun.ServerWebSocket<WsSessionData>,
+    cols = 120,
+    rows = 40,
+  ): Promise<void> {
+    const session = this.getSession(userId, sessionId);
+    const safeId = containerId.replace(/[^a-zA-Z0-9_.-]/g, "");
+    const cmd = `docker exec -it ${safeId} /bin/sh -c "(bash 2>/dev/null) || sh"`;
+
+    try {
+      const channel = await new Promise<ClientChannel>((resolve, reject) => {
+        session.conn.exec(
+          cmd,
+          { pty: { term: "xterm-256color", rows, cols, height: rows, width: cols } } as Parameters<Client["exec"]>[1],
+          (err: Error | undefined, stream: ClientChannel) => {
+            if (err || !stream) {
+              reject(err ?? new Error("Failed to open exec channel"));
+              return;
+            }
+            resolve(stream);
+          },
+        );
+      });
+
+      this.execChannels.set(execSessionId, channel);
+
+      ws.send(JSON.stringify({ type: "ready" }));
+
+      channel.on("data", (chunk: Buffer) => {
+        try {
+          ws.send(JSON.stringify({ type: "output", data: Buffer.from(chunk).toString("base64") }));
+        } catch {
+          // ws might have closed
+        }
+      });
+
+      channel.stderr?.on("data", (chunk: Buffer) => {
+        try {
+          ws.send(JSON.stringify({ type: "output", data: Buffer.from(chunk).toString("base64") }));
+        } catch {
+          // ws might have closed
+        }
+      });
+
+      channel.on("close", () => {
+        this.execChannels.delete(execSessionId);
+        try {
+          ws.send(JSON.stringify({ type: "closed" }));
+          ws.close();
+        } catch {
+          // ignore
+        }
+      });
+
+      channel.on("error", (err: Error) => {
+        this.execChannels.delete(execSessionId);
+        try {
+          ws.send(JSON.stringify({ type: "error", message: err.message }));
+          ws.close();
+        } catch {
+          // ignore
+        }
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Exec failed";
+      ws.send(JSON.stringify({ type: "error", message: msg }));
+      ws.close();
+    }
+  }
+
+  sendSshExecInput(execSessionId: string, data: string): void {
+    const channel = this.execChannels.get(execSessionId);
+    if (!channel) return;
+    try {
+      channel.write(data);
+    } catch {
+      // ignore write errors
+    }
+  }
+
+  resizeSshExecTerminal(execSessionId: string, cols: number, rows: number): void {
+    const channel = this.execChannels.get(execSessionId);
+    if (!channel) return;
+    try {
+      channel.setWindow(rows, cols, rows, cols);
+    } catch {
+      // ignore resize errors
+    }
+  }
+
+  detachSshExecWebSocket(execSessionId: string): void {
+    const channel = this.execChannels.get(execSessionId);
+    if (channel) {
+      try {
+        channel.end();
+      } catch {
+        // ignore
+      }
+      this.execChannels.delete(execSessionId);
+    }
   }
 }

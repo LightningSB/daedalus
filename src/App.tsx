@@ -1040,19 +1040,64 @@ function App() {
     }
   }, [apiClient, vaultToken])
 
+  // The SSH session to use for Docker/Compose/Openclaw operations.
+  // Prefer the currently active SSH session; fall back to the first connected SSH session.
+  const activeSshSessionId = useMemo(() => {
+    if (activeSession?.type === 'ssh') return activeSessionId
+    return sessions.find((s) => s.type === 'ssh')?.id ?? null
+  }, [activeSession, activeSessionId, sessions])
+
+  // Session-scoped Docker API client — wires Docker ops through the active SSH host.
+  const sshDockerApiClient = useMemo(() => {
+    if (!activeSshSessionId) return null
+    const sid = activeSshSessionId
+    return {
+      checkDockerHealth: () => apiClient.checkSshDockerHealth(sid),
+      listDockerContainers: (all?: boolean) => apiClient.listSshDockerContainers(sid, all),
+      inspectDockerContainer: (id: string) => apiClient.inspectSshDockerContainer(sid, id),
+      getDockerTmuxSessions: (id: string) => apiClient.getSshDockerContainerTmux(sid, id),
+      listDockerContainerFiles: (id: string, path: string) => apiClient.listSshDockerContainerFiles(sid, id, path),
+      previewDockerContainerFile: (id: string, path: string, limit?: number) =>
+        apiClient.previewSshDockerContainerFile(sid, id, path, limit),
+      getContainerExecWsUrl: (containerId: string) => apiClient.getSshContainerExecWsUrl(sid, containerId),
+      sendClientLog: (input: Parameters<typeof apiClient.sendClientLog>[0]) => apiClient.sendClientLog(input),
+    }
+  }, [activeSshSessionId, apiClient])
+
+  // Session-scoped Compose/Openclaw API client.
+  const sshComposeApiClient = useMemo(() => {
+    if (!activeSshSessionId) return null
+    const sid = activeSshSessionId
+    return {
+      getComposeProjects: () => apiClient.getSshComposeProjects(sid),
+      streamComposeTask: (
+        projectName: string,
+        configFile: string,
+        service: string,
+        args: string[],
+        onEvent: Parameters<typeof apiClient.streamSshComposeTask>[5],
+        signal?: AbortSignal,
+      ) => apiClient.streamSshComposeTask(sid, projectName, configFile, service, args, onEvent, signal),
+      sendClientLog: (input: Parameters<typeof apiClient.sendClientLog>[0]) => apiClient.sendClientLog(input),
+    }
+  }, [activeSshSessionId, apiClient])
+
   const handleOpenExec = useCallback((containerId: string, containerName: string) => {
     const id = `docker-${containerId}-${Date.now()}`
+    const wsUrl = activeSshSessionId
+      ? apiClient.getSshContainerExecWsUrl(activeSshSessionId, containerId)
+      : apiClient.getContainerExecWsUrl(containerId)
     const nextTab: SessionTab = {
       id,
       type: 'docker',
       title: `🐳 ${containerName}`,
-      websocketUrl: apiClient.getContainerExecWsUrl(containerId),
+      websocketUrl: wsUrl,
       containerId,
     }
     setSessions((previous) => [nextTab, ...previous])
     setActiveSessionId(id)
     setActiveWorkspace('terminal')
-  }, [apiClient])
+  }, [activeSshSessionId, apiClient])
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessions((previous) => {
@@ -1643,13 +1688,37 @@ function App() {
           />
         </div>
         <div className={activeWorkspace === 'docker' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
-          <DockerExplorer apiClient={apiClient} onOpenExec={handleOpenExec} />
+          {sshDockerApiClient ? (
+            <DockerExplorer apiClient={sshDockerApiClient} onOpenExec={handleOpenExec} />
+          ) : (
+            <div className="docker-unavailable">
+              <span className="docker-unavail-icon">🐳</span>
+              <h3>No SSH host open</h3>
+              <p className="docker-hint">Open an SSH session first to use Docker Explorer on the remote host.</p>
+            </div>
+          )}
         </div>
         <div className={activeWorkspace === 'compose' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
-          <ComposeRunner apiClient={apiClient} />
+          {sshComposeApiClient ? (
+            <ComposeRunner apiClient={sshComposeApiClient} />
+          ) : (
+            <div className="docker-unavailable">
+              <span className="docker-unavail-icon">⚡</span>
+              <h3>No SSH host open</h3>
+              <p className="docker-hint">Open an SSH session first to use Compose Task Runner on the remote host.</p>
+            </div>
+          )}
         </div>
         <div className={activeWorkspace === 'openclaw' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
-          <OpenclawCLI apiClient={apiClient} />
+          {sshComposeApiClient ? (
+            <OpenclawCLI apiClient={sshComposeApiClient} />
+          ) : (
+            <div className="docker-unavailable">
+              <span className="docker-unavail-icon">🦀</span>
+              <h3>No SSH host open</h3>
+              <p className="docker-hint">Open an SSH session first to use Openclaw CLI on the remote host.</p>
+            </div>
+          )}
         </div>
 
         {statusLine && <p className={statusLineClass}>{statusLine}</p>}

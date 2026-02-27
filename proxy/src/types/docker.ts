@@ -122,4 +122,12 @@ export type DockerExecWsData = {
   execSessionId: string;
 };
 
-export type WsSessionData = SshWsData | DockerExecWsData;
+export type SshDockerExecWsData = {
+  kind: "ssh-docker-exec";
+  userId: string;
+  sessionId: string;
+  containerId: string;
+  execSessionId: string;
+};
+
+export type WsSessionData = SshWsData | DockerExecWsData | SshDockerExecWsData;

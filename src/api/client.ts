@@ -510,6 +510,119 @@ export function createApiClient(userId: string) {
     getContainerExecWsUrl(containerId: string): string {
       return wsUrlFor(`${dockerBase}/docker/containers/${encodeURIComponent(containerId)}/exec/ws`)
     },
+
+    // -------------------------------------------------------------------------
+    // SSH-session-scoped Docker API
+    // All operations run against the active SSH host via the session tunnel.
+    // -------------------------------------------------------------------------
+
+    async checkSshDockerHealth(sessionId: string): Promise<boolean> {
+      const data = await requestJson<{ available?: boolean }>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/health`,
+      )
+      return Boolean(data.available)
+    },
+
+    async listSshDockerContainers(sessionId: string, all = false): Promise<DockerContainerSummary[]> {
+      const params = new URLSearchParams({ all: all ? 'true' : 'false' })
+      const data = await requestJson<{ containers?: unknown[] }>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers?${params}`,
+      )
+      return (Array.isArray(data?.containers) ? data.containers : []) as DockerContainerSummary[]
+    },
+
+    async inspectSshDockerContainer(sessionId: string, id: string): Promise<DockerContainerInfo> {
+      const data = await requestJson<{ info: DockerContainerInfo }>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers/${encodeURIComponent(id)}/inspect`,
+      )
+      return data.info
+    },
+
+    async getSshDockerContainerTmux(sessionId: string, id: string): Promise<TmuxStatus> {
+      return await requestJson<TmuxStatus>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers/${encodeURIComponent(id)}/tmux`,
+      )
+    },
+
+    async listSshDockerContainerFiles(sessionId: string, id: string, path: string): Promise<DockerFileEntry[]> {
+      const params = new URLSearchParams({ path })
+      const data = await requestJson<{ entries?: unknown[] }>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers/${encodeURIComponent(id)}/fs/list?${params}`,
+      )
+      return (Array.isArray(data.entries) ? data.entries : []) as DockerFileEntry[]
+    },
+
+    async previewSshDockerContainerFile(sessionId: string, id: string, path: string, limit = 65536): Promise<DockerFilePreview> {
+      const params = new URLSearchParams({ path, limit: String(limit) })
+      return requestJson<DockerFilePreview>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers/${encodeURIComponent(id)}/fs/preview?${params}`,
+      )
+    },
+
+    getSshContainerExecWsUrl(sessionId: string, containerId: string): string {
+      return wsUrlFor(
+        `${base}/ssh/sessions/${encodeURIComponent(sessionId)}/docker/containers/${encodeURIComponent(containerId)}/exec/ws`,
+      )
+    },
+
+    async getSshComposeProjects(sessionId: string): Promise<ComposeProject[]> {
+      const data = await requestJson<{ projects?: unknown[] }>(
+        `/ssh/sessions/${encodeURIComponent(sessionId)}/docker/compose/projects`,
+      )
+      return (Array.isArray(data.projects) ? data.projects : []) as ComposeProject[]
+    },
+
+    async streamSshComposeTask(
+      sessionId: string,
+      projectName: string,
+      configFile: string,
+      service: string,
+      args: string[],
+      onEvent: (event: TaskEvent) => void,
+      signal?: AbortSignal,
+    ): Promise<number> {
+      const response = await fetch(
+        `${base}/ssh/sessions/${encodeURIComponent(sessionId)}/docker/compose/run`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectName, configFile, service, args }),
+          signal,
+        },
+      )
+      if (!response.ok) throw new ApiError(`Compose run failed (${response.status})`, response.status)
+      if (!response.body) return -1
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let exitCode = -1
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const event = JSON.parse(line.slice(6)) as TaskEvent
+                onEvent(event)
+                if (event.type === 'exit' && event.code !== undefined) {
+                  exitCode = event.code
+                }
+              } catch { /* ignore malformed */ }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      return exitCode
+    },
   }
 }
 

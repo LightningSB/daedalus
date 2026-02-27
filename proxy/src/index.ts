@@ -5,6 +5,7 @@ import { VaultService } from "./services/vaultService";
 import { SshService } from "./services/sshService";
 import * as dockerService from "./services/dockerService";
 import * as dockerComposeService from "./services/dockerComposeService";
+import { SshDockerService } from "./services/sshDockerService";
 import { getVaultToken, json, readJson } from "./utils/http";
 import type { WsSessionData } from "./types/docker";
 
@@ -14,6 +15,7 @@ await store.init();
 
 const vault = new VaultService(store, config.vaultIdleTimeoutMs);
 const sshService = new SshService(store, vault, config.sshAllowedHosts);
+const sshDockerService = new SshDockerService(sshService);
 
 function corsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get("origin") ?? "*";
@@ -657,6 +659,158 @@ const server = Bun.serve<WsSessionData>({
         return ok(request, { ok: true });
       }
 
+      // -----------------------------------------------------------------------
+      // SSH-scoped Docker routes
+      // /api/users/:userId/ssh/sessions/:sessionId/docker/...
+      // -----------------------------------------------------------------------
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/health$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const available = await sshDockerService.health(userId, sessionId);
+        return ok(request, { available });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const all = url.searchParams.get("all") === "true" || url.searchParams.get("all") === "1";
+        const containers = await sshDockerService.listContainers(userId, sessionId, all);
+        return ok(request, { containers });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/inspect$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const containerId = decodeURIComponent(match[3]);
+        const info = await sshDockerService.inspectContainer(userId, sessionId, containerId);
+        return ok(request, { info });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/tmux$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const containerId = decodeURIComponent(match[3]);
+        const tmux = await sshDockerService.getContainerTmux(userId, sessionId, containerId);
+        return ok(request, tmux);
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/fs\/list$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const containerId = decodeURIComponent(match[3]);
+        const fsPath = url.searchParams.get("path") ?? "/";
+        const entries = await sshDockerService.listContainerFiles(userId, sessionId, containerId, fsPath);
+        return ok(request, { entries, path: fsPath });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/fs\/preview$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const containerId = decodeURIComponent(match[3]);
+        const fsPath = url.searchParams.get("path");
+        if (!fsPath) return bad(request, new Error("path is required"), 400);
+        const limitRaw = Number(url.searchParams.get("limit") ?? 65536);
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 65536;
+        const preview = await sshDockerService.previewContainerFile(userId, sessionId, containerId, fsPath, limit);
+        return ok(request, preview);
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/exec\/ws$/);
+      if (match) {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const containerId = decodeURIComponent(match[3]);
+        const execSessionId = randomUUID();
+        const upgraded = serverInstance.upgrade(request, {
+          data: { kind: "ssh-docker-exec" as const, userId, sessionId, containerId, execSessionId },
+        });
+        if (upgraded) return undefined;
+        return bad(request, new Error("WebSocket upgrade failed"), 400);
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/containers\/([^/]+)\/exec\/resize$/);
+      if (match && request.method === "POST") {
+        const body = await readJson<{ execSessionId: string; cols: number; rows: number }>(request);
+        sshService.resizeSshExecTerminal(body.execSessionId, body.cols, body.rows);
+        return ok(request, { ok: true });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/compose\/projects$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const projects = await sshDockerService.listComposeProjects(userId, sessionId);
+        return ok(request, { projects });
+      }
+
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/docker\/compose\/run$/);
+      if (match && request.method === "POST") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const body = await readJson<{
+          projectName: string;
+          configFile: string;
+          service: string;
+          args?: string[];
+        }>(request);
+
+        if (!body.projectName || !body.configFile || !body.service) {
+          return bad(request, new Error("projectName, configFile, service are required"), 400);
+        }
+
+        const corsHdrs = corsHeaders(request);
+        const encoder = new TextEncoder();
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            const abortController = new AbortController();
+
+            try {
+              await sshDockerService.runComposeTask(
+                userId,
+                sessionId,
+                body.projectName,
+                body.configFile,
+                body.service,
+                body.args ?? [],
+                (event) => {
+                  try {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                  } catch {
+                    // stream closed
+                  }
+                },
+                abortController.signal,
+              );
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : "Unknown error";
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "error", message: msg })}\n\n`),
+              );
+            } finally {
+              controller.close();
+            }
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            "x-accel-buffering": "no",
+            ...corsHdrs,
+          } as HeadersInit,
+        });
+      }
+
       return bad(request, new Error("Not found"), 404);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected server error";
@@ -681,6 +835,14 @@ const server = Bun.serve<WsSessionData>({
         }
       } else if (data.kind === "docker-exec") {
         void dockerService.attachExecWebSocket(data, ws);
+      } else if (data.kind === "ssh-docker-exec") {
+        void sshService.attachSshExecWebSocket(
+          data.userId,
+          data.sessionId,
+          data.containerId,
+          data.execSessionId,
+          ws,
+        );
       }
     },
     message(ws, message) {
@@ -708,6 +870,22 @@ const server = Bun.serve<WsSessionData>({
         } catch {
           // ignore malformed messages
         }
+      } else if (data.kind === "ssh-docker-exec") {
+        try {
+          const parsed = JSON.parse(typeof message === "string" ? message : Buffer.from(message).toString()) as {
+            type?: string;
+            data?: string;
+            cols?: number;
+            rows?: number;
+          };
+          if (parsed.type === "input" && typeof parsed.data === "string") {
+            sshService.sendSshExecInput(data.execSessionId, parsed.data);
+          } else if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+            sshService.resizeSshExecTerminal(data.execSessionId, parsed.cols, parsed.rows);
+          }
+        } catch {
+          // ignore malformed messages
+        }
       }
     },
     close(ws) {
@@ -720,6 +898,8 @@ const server = Bun.serve<WsSessionData>({
         );
       } else if (data.kind === "docker-exec") {
         dockerService.detachExecWebSocket(data.execSessionId);
+      } else if (data.kind === "ssh-docker-exec") {
+        sshService.detachSshExecWebSocket(data.execSessionId);
       }
     },
   },
