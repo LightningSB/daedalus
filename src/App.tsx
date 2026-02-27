@@ -134,6 +134,7 @@ function downloadTextFile(filename: string, text: string): void {
 // ---------------------------------------------------------------------------
 
 type VaultScreenProps = {
+  mode: 'vault' | 'email'
   vaultInitialized: boolean
   vaultPassphrase: string
   setVaultPassphrase: (value: string) => void
@@ -141,9 +142,14 @@ type VaultScreenProps = {
   recoveryPhrase: string | null
   onInit: () => void
   onUnlock: () => void
+  email?: string
+  setEmail?: (value: string) => void
+  onSendMagicLink?: () => void
+  emailHint?: string | null
 }
 
 function VaultScreen({
+  mode,
   vaultInitialized,
   vaultPassphrase,
   setVaultPassphrase,
@@ -151,20 +157,31 @@ function VaultScreen({
   recoveryPhrase,
   onInit,
   onUnlock,
+  email,
+  setEmail,
+  onSendMagicLink,
+  emailHint,
 }: VaultScreenProps) {
-  const title = !vaultInitialized ? 'Initialize Vault' : 'Unlock Vault'
-  const icon = !vaultInitialized ? '🔐' : '🔒'
-  const hint = !vaultInitialized
-    ? 'Create a master passphrase to enable SSH credentials storage.'
-    : 'Vault is locked. Enter your master passphrase to continue.'
+  const title = mode === 'email'
+    ? 'Sign in with Email'
+    : (!vaultInitialized ? 'Initialize Vault' : 'Unlock Vault')
+  const icon = mode === 'email' ? '✉️' : (!vaultInitialized ? '🔐' : '🔒')
+  const hint = mode === 'email'
+    ? 'Enter your linked email. We will send a one-time login link to your Telegram bot chat.'
+    : (!vaultInitialized
+      ? 'Create a master passphrase to enable SSH credentials storage.'
+      : 'Vault is locked. Enter your master passphrase to continue.')
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      if (!vaultInitialized) {
-        onInit()
-      } else {
-        onUnlock()
-      }
+    if (event.key !== 'Enter') return
+    if (mode === 'email') {
+      onSendMagicLink?.()
+      return
+    }
+    if (!vaultInitialized) {
+      onInit()
+    } else {
+      onUnlock()
     }
   }
 
@@ -183,26 +200,54 @@ function VaultScreen({
           <p className="hint">{hint}</p>
         </div>
 
-        <input
-          value={vaultPassphrase}
-          type="password"
-          placeholder="Master passphrase"
-          className="vault-passphrase-input"
-          autoFocus
-          onChange={(event) => setVaultPassphrase(event.target.value)}
-          onKeyDown={handleKeyDown}
-        />
+        {mode === 'email' ? (
+          <>
+            <input
+              value={email ?? ''}
+              type="email"
+              placeholder="you@example.com"
+              className="vault-passphrase-input"
+              autoFocus
+              onChange={(event) => setEmail?.(event.target.value)}
+              onKeyDown={handleKeyDown}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => onSendMagicLink?.()}
+              disabled={busy || !(email ?? '').trim()}
+            >
+              {busy ? 'Please wait…' : 'Send Magic Link'}
+            </button>
+            {emailHint && <p className="hint">{emailHint}</p>}
+          </>
+        ) : (
+          <>
+            <input
+              value={vaultPassphrase}
+              type="password"
+              placeholder="Master passphrase"
+              className="vault-passphrase-input"
+              autoFocus
+              onChange={(event) => setVaultPassphrase(event.target.value)}
+              onKeyDown={handleKeyDown}
+            />
 
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={!vaultInitialized ? onInit : onUnlock}
-          disabled={busy || !vaultPassphrase.trim()}
-        >
-          {busy ? 'Please wait…' : title}
-        </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={!vaultInitialized ? onInit : onUnlock}
+              disabled={busy || !vaultPassphrase.trim()}
+            >
+              {busy ? 'Please wait…' : title}
+            </button>
+          </>
+        )}
 
-        {recoveryPhrase && (
+        {mode !== 'email' && recoveryPhrase && (
           <div className="recovery-section">
             <p>Recovery phrase — save this somewhere safe:</p>
             <pre className="recovery-phrase">{recoveryPhrase}</pre>
@@ -996,13 +1041,14 @@ function App() {
   const keyFileInputRef = useRef<HTMLInputElement>(null)
 
   const parsedCommand = useMemo(() => parseSshCommand(sessionCommand.trim()), [sessionCommand])
+  const isExternalBrowserMode = derivedUserId === 'local-dev'
   const vaultInitialized = Boolean(vaultStatus?.initialized)
   const vaultUnlocked = Boolean(vaultStatus?.unlocked)
   // Always require a local vault token — if the server session is still alive from a prior
   // page load, vaultStatus.unlocked can be true but vaultToken (React state) is null, which
   // means credentials would be silently dropped.  Force the user through the unlock form to
   // obtain a fresh token whenever we don't have one.
-  const showVaultLockScreen = vaultStatus !== null && !vaultToken
+  const showVaultLockScreen = isExternalBrowserMode || (vaultStatus !== null && !vaultToken)
 
   // True when the parsed SSH host+user is already present in the saved-hosts list.
   const isHostAlreadySaved = useMemo(() => {
@@ -1667,35 +1713,31 @@ function App() {
           + New Session
         </button>
 
-        <div className="panel auth-email-panel">
-          <div className="panel-header">
-            <h2>Email Link</h2>
+        {!isExternalBrowserMode && !linkedEmail && (
+          <div className="panel auth-email-panel">
+            <div className="panel-header">
+              <h2>Email Link</h2>
+            </div>
+            <label htmlFor="email-link-input">Login email</label>
+            <input
+              id="email-link-input"
+              type="email"
+              value={emailDraft}
+              onChange={(event) => setEmailDraft(event.target.value)}
+              placeholder="you@example.com"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            {emailStatus && <p className="hint">{emailStatus}</p>}
+            <div className="vault-actions">
+              <button type="button" onClick={() => { void handleSaveEmail() }} disabled={emailBusy}>Save Email</button>
+              <button type="button" onClick={() => { void handleSendMagicLink() }} disabled={emailBusy || !emailDraft.trim()}>
+                Send Magic Link
+              </button>
+            </div>
           </div>
-          <label htmlFor="email-link-input">Login email</label>
-          <input
-            id="email-link-input"
-            type="email"
-            value={emailDraft}
-            onChange={(event) => setEmailDraft(event.target.value)}
-            placeholder="you@example.com"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-          {linkedEmail && (
-            <p className="hint">Linked: {linkedEmail}</p>
-          )}
-          {derivedUserId === 'local-dev' && (
-            <p className="hint">Open from Telegram once to bind email to a Telegram user.</p>
-          )}
-          {emailStatus && <p className="hint">{emailStatus}</p>}
-          <div className="vault-actions">
-            <button type="button" onClick={() => { void handleSaveEmail() }} disabled={emailBusy || derivedUserId === 'local-dev'}>Save Email</button>
-            <button type="button" onClick={() => { void handleSendMagicLink() }} disabled={emailBusy || !emailDraft.trim()}>
-              Send Magic Link
-            </button>
-          </div>
-        </div>
+        )}
 
         <div className="sidebar-section">
           <div className="panel-header">
@@ -1976,13 +2018,18 @@ function App() {
 
       {showVaultLockScreen && (
         <VaultScreen
+          mode={isExternalBrowserMode ? 'email' : 'vault'}
           vaultInitialized={vaultInitialized}
           vaultPassphrase={vaultPassphrase}
           setVaultPassphrase={setVaultPassphrase}
-          busy={busy}
+          busy={busy || emailBusy}
           recoveryPhrase={recoveryPhrase}
           onInit={() => { void handleVaultInit() }}
           onUnlock={() => { void handleVaultUnlock() }}
+          email={emailDraft}
+          setEmail={setEmailDraft}
+          onSendMagicLink={() => { void handleSendMagicLink() }}
+          emailHint={emailStatus}
         />
       )}
 
