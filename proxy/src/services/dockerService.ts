@@ -80,10 +80,9 @@ export async function inspectContainer(
   };
 }
 
+// Derive the container ID solely from /proc paths.  Does NOT read env vars
+// or call the Docker API — those concerns live in getSelfContainer().
 async function resolveContainerIdFromRuntime(): Promise<string | null> {
-  const fromEnv = process.env.SELF_CONTAINER_ID?.trim();
-  if (fromEnv) return fromEnv;
-
   // Primary: look for the actual Docker container ID in mountinfo.
   // Docker bind-mounts /var/lib/docker/containers/<full-id>/resolv.conf (and
   // /etc/hosts, /etc/hostname) into every container.  This path reliably
@@ -131,17 +130,26 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
     throw selfContainerError ?? new Error("Could not resolve self container");
   }
 
-  // env var takes highest precedence (explicit config-driven override)
+  // SELF_CONTAINER_ID is an explicit operator override — trust it immediately
+  // without any Docker API calls.  This is the recommended path when
+  // auto-discovery is unreliable (cgroup v2, nested containers, etc.).
   const envId = process.env.SELF_CONTAINER_ID?.trim();
   if (envId) {
-    try {
-      const info = await docker.getContainer(envId).inspect();
-      selfContainerCache = { containerId: info.Id, name: info.Name.replace(/^\//, "") };
-      selfContainerResolved = true;
-      return selfContainerCache;
-    } catch {
-      // fallthrough — SELF_CONTAINER_ID set but Docker doesn't know it; keep trying
-    }
+    selfContainerCache = { containerId: envId, name: envId.slice(0, 12) };
+    selfContainerResolved = true;
+    return selfContainerCache;
+  }
+
+  // Fast-fail: if the Docker socket is not reachable there is no point
+  // running the entire hostname/proc lookup waterfall — every Docker API call
+  // would fail anyway.  Surface a clear, actionable error immediately.
+  if (!(await isDockerAvailable())) {
+    selfContainerError = new Error(
+      "Docker socket is not accessible (/var/run/docker.sock). " +
+      "Set SELF_CONTAINER_ID env var to the proxy container's full Docker container ID to enable local-tmux attach.",
+    );
+    selfContainerResolved = true;
+    throw selfContainerError;
   }
 
   // Use both the env HOSTNAME and the OS hostname() syscall (they should be
