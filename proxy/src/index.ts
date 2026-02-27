@@ -466,6 +466,14 @@ const server = Bun.serve<WsSessionData>({
         );
       }
 
+      match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/tmux$/);
+      if (match && request.method === "GET") {
+        const userId = decodeURIComponent(match[1]);
+        const sessionId = decodeURIComponent(match[2]);
+        const result = await sshService.getTmuxSessions(userId, sessionId);
+        return ok(request, result);
+      }
+
       match = pathname.match(/^\/api\/users\/([^/]+)\/ssh\/sessions\/([^/]+)\/fs\/(list|stat|preview|download|upload|mkdir|rename|delete)$/);
       if (match) {
         return await handleSshSessionFs(
@@ -567,6 +575,13 @@ const server = Bun.serve<WsSessionData>({
         const containerId = decodeURIComponent(match[1]);
         const info = await dockerService.inspectContainer(containerId);
         return ok(request, { info });
+      }
+
+      match = pathname.match(/^\/api\/docker\/containers\/([^/]+)\/tmux$/);
+      if (match && request.method === "GET") {
+        const containerId = decodeURIComponent(match[1]);
+        const tmux = await dockerService.getTmuxSessions(containerId);
+        return ok(request, tmux);
       }
 
       match = pathname.match(/^\/api\/docker\/containers\/([^/]+)\/fs\/list$/);

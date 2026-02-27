@@ -313,17 +313,103 @@ body {
   min-height: 0;
 }
 
-.tabs {
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--color-dark-border);
+  background: linear-gradient(180deg, rgba(26, 33, 41, 0.55), rgba(26, 33, 41, 0.2));
+  gap: 0.5rem;
+}
+
+.top-bar-left, .top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+}
+
+.top-bar-right {
+  justify-content: flex-end;
+}
+
+.top-bar-center {
+  flex: 0 1 auto;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--color-emerald-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.workspace-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-hint);
+  border-radius: 0.65rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.workspace-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-base);
+}
+
+.workspace-tab.active {
+  background: rgba(0, 212, 146, 0.14);
+  border-color: rgba(0, 212, 146, 0.4);
+  color: var(--color-emerald-primary);
+}
+
+.workspace-tab .tab-text {
+  max-width: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  opacity: 0;
+  margin-left: 0;
+  transition: max-width 0.25s ease, opacity 0.25s ease, margin-left 0.25s ease;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.workspace-tab:hover .tab-text,
+.workspace-tab.active .tab-text {
+  max-width: 80px;
+  opacity: 1;
+  margin-left: 0.35rem;
+}
+
+.session-row {
   display: flex;
   gap: 0.45rem;
   overflow-x: auto;
-  padding: 0.65rem 0.65rem 0.35rem;
-  border-bottom: 1px solid var(--color-dark-border);
-  background: linear-gradient(180deg, rgba(26, 33, 41, 0.55), rgba(26, 33, 41, 0.2));
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--color-dark-border-subtle);
+  background: rgba(10, 14, 20, 0.4);
   scrollbar-width: none;
+  min-height: 2.6rem;
+  align-items: center;
 }
 
-.tabs::-webkit-scrollbar {
+.session-row::-webkit-scrollbar {
   display: none;
 }
 
@@ -380,9 +466,54 @@ body {
   padding: 0.45rem 0.3rem;
 }
 
-.workspace-tab {
-  min-width: 5.5rem;
-  justify-content: center;
+.tmux-pill-wrap {
+  position: relative;
+}
+
+.tmux-pill {
+  text-transform: lowercase;
+}
+
+.tmux-popover {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  padding: 0.5rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--color-dark-border-subtle);
+  background: rgba(7, 11, 16, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.tmux-popover ul {
+  list-style: none;
+  margin: 0 0 0.45rem;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.tmux-popover li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+
+.tmux-popover p {
+  margin: 0 0 0.45rem;
+  font-size: 0.75rem;
+  color: var(--color-text-hint);
+}
+
+.tmux-popover button {
+  border: 1px solid var(--color-dark-border);
+  border-radius: 0.45rem;
+  background: rgba(14, 22, 29, 0.75);
+  color: inherit;
+  padding: 0.28rem 0.5rem;
 }
 
 .terminal-area {
@@ -1770,6 +1901,29 @@ body {
   gap: 0.5rem;
   overflow-y: auto;
 }
+
+.docker-tmux-block {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.docker-tmux-list {
+  border: 1px solid var(--color-dark-border-subtle);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.docker-tmux-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+}
+
 .docker-meta-table {
   width: 100%;
   border-collapse: collapse;
@@ -2165,3 +2319,39 @@ body {
 .openclaw-output-wrap { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-height: 0; }
 .openclaw-output-header { display: flex; align-items: center; justify-content: space-between; }
 .openclaw-output { flex: 1; max-height: 400px; }
+
+.tmux-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tmux-copy-btn {
+  background: transparent !important;
+  border: none !important;
+  font-size: 1rem !important;
+  cursor: pointer;
+  padding: 0 0.2rem !important;
+  display: flex;
+  align-items: center;
+}
+
+.tmux-copy-btn:hover {
+  opacity: 0.8;
+}
+
+.docker-tmux-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.docker-action-btn.small {
+  padding: 0 0.3rem;
+  font-size: 0.9rem;
+  background: transparent;
+  border: none;
+}
+.docker-action-btn.small:hover {
+  opacity: 0.8;
+}

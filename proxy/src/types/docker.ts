@@ -92,6 +92,23 @@ export interface TaskEvent {
   message?: string;
 }
 
+// Tmux session info
+export interface TmuxSession {
+  name: string;
+  windows: number;
+  attached: boolean;
+  raw: string;
+}
+
+export type TmuxStatusKind = "not-installed" | "no-server" | "ok" | "error";
+
+export interface TmuxStatus {
+  available: boolean;
+  status: TmuxStatusKind;
+  sessions: TmuxSession[];
+  error?: string;
+}
+
 // WebSocket data discriminated union for Bun.serve
 export type SshWsData = {
   kind: "ssh";

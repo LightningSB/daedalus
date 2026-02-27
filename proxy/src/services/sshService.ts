@@ -12,6 +12,7 @@ import {
   type LocalForward,
   type RemoteForward,
 } from "../utils/sshCommandParser";
+import type { TmuxStatus, TmuxSession } from "../types/docker";
 
 export type SessionSummary = {
   id: string;
@@ -355,6 +356,51 @@ function getBindAddress(server: net.Server): string {
   }
   const ai = address as AddressInfo;
   return `${ai.address}:${ai.port}`;
+}
+
+function parseTmuxOutput(stdout: string, stderr: string, code: number): TmuxStatus {
+  const combined = (stdout + stderr).toLowerCase();
+
+  if (
+    code === 127 ||
+    combined.includes("command not found") ||
+    combined.includes("executable file not found") ||
+    combined.includes("no such file")
+  ) {
+    return { available: false, status: "not-installed", sessions: [] };
+  }
+
+  if (
+    code !== 0 &&
+    (combined.includes("no server running") ||
+      combined.includes("no sessions") ||
+      combined.includes("error connecting"))
+  ) {
+    return { available: true, status: "no-server", sessions: [] };
+  }
+
+  if (code !== 0) {
+    return {
+      available: true,
+      status: "error",
+      sessions: [],
+      error: (stdout + stderr).trim().slice(0, 300),
+    };
+  }
+
+  const sessions: TmuxSession[] = [];
+  for (const line of stdout.trim().split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    sessions.push({
+      name: (parts[0] ?? "").trim(),
+      windows: parseInt((parts[1] ?? "0").trim(), 10) || 0,
+      attached: (parts[2] ?? "0").trim() === "1",
+      raw: line,
+    });
+  }
+
+  return { available: true, status: "ok", sessions };
 }
 
 export class SshService {
@@ -830,6 +876,69 @@ export class SshService {
   resizeSession(userId: string, sessionId: string, cols: number, rows: number): void {
     const session = this.getSession(userId, sessionId);
     session.shell.setWindow(rows, cols, rows, cols);
+  }
+
+  /** Run a single non-interactive command on the SSH connection and return output. */
+  execCommand(
+    userId: string,
+    sessionId: string,
+    command: string,
+    timeoutMs = 5000,
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const session = this.getSession(userId, sessionId);
+    if (!session.connected) {
+      return Promise.reject(new Error("Session is not connected"));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error("Command timed out"));
+      }, timeoutMs);
+
+      session.conn.exec(command, (err, stream) => {
+        if (err) {
+          clearTimeout(timer);
+          reject(err);
+          return;
+        }
+
+        let stdout = "";
+        let stderr = "";
+
+        stream.on("data", (data: Buffer) => {
+          stdout += data.toString("utf8");
+        });
+
+        stream.stderr.on("data", (data: Buffer) => {
+          stderr += data.toString("utf8");
+        });
+
+        stream.on("close", (code: number | null) => {
+          clearTimeout(timer);
+          resolve({ stdout, stderr, code: code ?? -1 });
+        });
+
+        stream.on("error", (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+      });
+    });
+  }
+
+  async getTmuxSessions(userId: string, sessionId: string): Promise<TmuxStatus> {
+    try {
+      const { stdout, stderr, code } = await this.execCommand(
+        userId,
+        sessionId,
+        "tmux list-sessions -F '#{session_name}\t#{session_windows}\t#{session_attached}'",
+        6000,
+      );
+      return parseTmuxOutput(stdout, stderr, code);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      return { available: false, status: "error", sessions: [], error: msg };
+    }
   }
 
   async listDirectory(userId: string, sessionId: string, rawPath: string | null): Promise<{ path: string; resolvedPath?: string; entries: SftpEntry[]; truncated: boolean }> {

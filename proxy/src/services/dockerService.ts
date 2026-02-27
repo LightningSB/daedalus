@@ -1,5 +1,5 @@
 import Dockerode from "dockerode";
-import type { DockerContainerInfo, DockerContainerSummary, DockerExecWsData, DockerFileEntry, DockerFilePreview, WsSessionData } from "../types/docker";
+import type { DockerContainerInfo, DockerContainerSummary, DockerExecWsData, DockerFileEntry, DockerFilePreview, TmuxSession, TmuxStatus, WsSessionData } from "../types/docker";
 
 const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
 
@@ -224,6 +224,79 @@ export async function previewContainerFile(
     encoding: isBinary ? undefined : "utf-8",
     data: isBinary ? undefined : new TextDecoder("utf-8").decode(allBytes),
   };
+}
+
+function parseTmuxOutput(stdout: string, stderr: string, code: number): TmuxStatus {
+  const combined = (stdout + stderr).toLowerCase();
+
+  if (
+    code === 127 ||
+    combined.includes("command not found") ||
+    combined.includes("executable file not found") ||
+    combined.includes("no such file")
+  ) {
+    return { available: false, status: "not-installed", sessions: [] };
+  }
+
+  if (
+    code !== 0 &&
+    (combined.includes("no server running") ||
+      combined.includes("no sessions") ||
+      combined.includes("error connecting"))
+  ) {
+    return { available: true, status: "no-server", sessions: [] };
+  }
+
+  if (code !== 0) {
+    return {
+      available: true,
+      status: "error",
+      sessions: [],
+      error: (stdout + stderr).trim().slice(0, 300),
+    };
+  }
+
+  const sessions: TmuxSession[] = [];
+  for (const line of stdout.trim().split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    sessions.push({
+      name: (parts[0] ?? "").trim(),
+      windows: parseInt((parts[1] ?? "0").trim(), 10) || 0,
+      attached: (parts[2] ?? "0").trim() === "1",
+      raw: line,
+    });
+  }
+
+  return { available: true, status: "ok", sessions };
+}
+
+export async function getTmuxSessions(containerId: string): Promise<TmuxStatus> {
+  try {
+    const proc = Bun.spawn(
+      [
+        "docker",
+        "exec",
+        containerId,
+        "tmux",
+        "list-sessions",
+        "-F",
+        "#{session_name}\t#{session_windows}\t#{session_attached}",
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+
+    return parseTmuxOutput(stdout, stderr, exitCode);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return { available: false, status: "error", sessions: [], error: msg };
+  }
 }
 
 export async function attachExecWebSocket(

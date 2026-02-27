@@ -6,12 +6,14 @@ import type {
   DockerContainerSummary,
   DockerFileEntry,
   DockerFilePreview,
+  TmuxStatus,
 } from '../../api/client'
 
 type DockerApiClient = {
   checkDockerHealth: () => Promise<boolean>
   listDockerContainers: (all?: boolean) => Promise<DockerContainerSummary[]>
   inspectDockerContainer: (id: string) => Promise<DockerContainerInfo>
+  getDockerTmuxSessions: (id: string) => Promise<TmuxStatus>
   listDockerContainerFiles: (id: string, path: string) => Promise<DockerFileEntry[]>
   previewDockerContainerFile: (id: string, path: string, limit?: number) => Promise<DockerFilePreview>
   getContainerExecWsUrl: (containerId: string) => string
@@ -19,6 +21,7 @@ type DockerApiClient = {
 
 type Props = {
   apiClient: DockerApiClient
+  onOpenExec?: (containerId: string, containerName: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -30,7 +33,7 @@ type TerminalProps = {
   onClose: () => void
 }
 
-function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
+export function ContainerExecTerminal({ wsUrl, onClose }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -298,12 +301,15 @@ type DetailProps = {
   container: DockerContainerSummary
   apiClient: DockerApiClient
   onClose: () => void
+  onOpenExec?: (containerId: string, containerName: string) => void
 }
 
-function ContainerDetail({ container, apiClient, onClose }: DetailProps) {
+function ContainerDetail({ container, apiClient, onClose, onOpenExec }: DetailProps) {
   const [view, setView] = useState<'overview' | 'files' | 'terminal'>('overview')
   const [info, setInfo] = useState<DockerContainerInfo | null>(null)
   const [infoLoading, setInfoLoading] = useState(false)
+  const [tmux, setTmux] = useState<TmuxStatus | null>(null)
+  const [tmuxExpanded, setTmuxExpanded] = useState(false)
 
   useEffect(() => {
     setInfoLoading(true)
@@ -312,6 +318,42 @@ function ContainerDetail({ container, apiClient, onClose }: DetailProps) {
       .then(setInfo)
       .catch(() => setInfo(null))
       .finally(() => setInfoLoading(false))
+  }, [apiClient, container.id])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadTmux = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const status = await apiClient.getDockerTmuxSessions(container.id)
+        if (!cancelled) setTmux(status)
+      } catch (error) {
+        if (!cancelled) {
+          setTmux({
+            available: true,
+            status: 'error',
+            sessions: [],
+            error: error instanceof Error ? error.message : 'Failed to check tmux',
+          })
+        }
+      }
+    }
+
+    void loadTmux()
+    const timer = window.setInterval(() => { void loadTmux() }, 15000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void loadTmux()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [apiClient, container.id])
 
   const execWsUrl = apiClient.getContainerExecWsUrl(container.id)
@@ -338,7 +380,13 @@ function ContainerDetail({ container, apiClient, onClose }: DetailProps) {
             key={tab}
             type="button"
             className={`docker-detail-tab${view === tab ? ' active' : ''}${tab !== 'overview' && !container.state.includes('running') ? ' disabled' : ''}`}
-            onClick={() => setView(tab)}
+            onClick={() => {
+              if (tab === 'terminal' && onOpenExec) {
+                onOpenExec(container.id, container.names[0] ?? container.shortId)
+              } else {
+                setView(tab)
+              }
+            }}
             disabled={tab !== 'overview' && !container.state.includes('running')}
           >
             {tab === 'overview' ? 'Overview' : tab === 'files' ? 'Files' : 'Terminal'}
@@ -349,6 +397,46 @@ function ContainerDetail({ container, apiClient, onClose }: DetailProps) {
       <div className="docker-detail-body">
         {view === 'overview' && (
           <div className="docker-overview">
+            <div className="docker-tmux-block">
+              <button
+                type="button"
+                className="docker-action-btn"
+                onClick={() => setTmuxExpanded((current) => !current)}
+              >
+                TMUX · {tmux ? (tmux.status === 'ok' ? `${tmux.sessions.length} session${tmux.sessions.length === 1 ? '' : 's'}` : tmux.status) : '…'}
+              </button>
+              <button
+                type="button"
+                className="docker-action-btn"
+                onClick={() => { void apiClient.getDockerTmuxSessions(container.id).then(setTmux).catch(() => {}) }}
+              >
+                ↻
+              </button>
+            </div>
+            {tmuxExpanded && tmux && (
+              <div className="docker-tmux-list">
+                {tmux.status === 'ok' && tmux.sessions.length > 0 && tmux.sessions.map((s) => (
+                  <div key={s.name} className="docker-tmux-row">
+                    <div className="docker-tmux-info">
+                      <strong>{s.name}</strong>
+                      <span>{s.windows}w{s.attached ? ' · attached' : ''}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="docker-action-btn small"
+                      title="Copy attach command"
+                      onClick={() => { void navigator.clipboard.writeText(`docker exec -it ${(container.names?.[0] || container.id).replace('/', '')} tmux attach -t ${s.name}`) }}
+                    >
+                      📋
+                    </button>
+                  </div>
+                ))}
+                {tmux.status === 'ok' && tmux.sessions.length === 0 && <p className="docker-hint">No tmux sessions</p>}
+                {tmux.status === 'no-server' && <p className="docker-hint">tmux server not running</p>}
+                {tmux.status === 'not-installed' && <p className="docker-hint">tmux not installed</p>}
+                {tmux.status === 'error' && <p className="docker-error">{tmux.error ?? 'tmux check failed'}</p>}
+              </div>
+            )}
             {infoLoading && <p className="docker-hint">Loading…</p>}
             {info && (
               <>
@@ -452,7 +540,7 @@ function ContainerDetail({ container, apiClient, onClose }: DetailProps) {
 // DockerExplorer (main export)
 // ---------------------------------------------------------------------------
 
-export function DockerExplorer({ apiClient }: Props) {
+export function DockerExplorer({ apiClient, onOpenExec }: Props) {
   const [available, setAvailable] = useState<boolean | null>(null)
   const [containers, setContainers] = useState<DockerContainerSummary[]>([])
   const [showAll, setShowAll] = useState(false)
@@ -594,6 +682,7 @@ export function DockerExplorer({ apiClient }: Props) {
               container={selected}
               apiClient={apiClient}
               onClose={() => setSelected(null)}
+              onOpenExec={onOpenExec}
             />
           )}
         </div>

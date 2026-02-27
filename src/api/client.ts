@@ -305,6 +305,10 @@ export function createApiClient(userId: string) {
       })
     },
 
+    async getSshTmuxSessions(sessionId: string, signal?: AbortSignal): Promise<TmuxStatus> {
+      return await requestJson(`/ssh/sessions/${encodeURIComponent(sessionId)}/tmux`, { signal })
+    },
+
     async listSftpDirectory(sessionId: string, path: string, signal?: AbortSignal): Promise<{
       path: string
       resolvedPath?: string
@@ -475,6 +479,10 @@ export function createApiClient(userId: string) {
       return data.info
     },
 
+    async getDockerTmuxSessions(id: string): Promise<TmuxStatus> {
+      return await dockerJson<TmuxStatus>(`/docker/containers/${encodeURIComponent(id)}/tmux`)
+    },
+
     async listDockerContainerFiles(id: string, path: string): Promise<DockerFileEntry[]> {
       const params = new URLSearchParams({ path })
       const data = await dockerJson<{ entries?: unknown[] }>(`/docker/containers/${encodeURIComponent(id)}/fs/list?${params}`)
@@ -576,4 +584,18 @@ export type TaskEvent = {
   data?: string
   code?: number
   message?: string
+}
+
+export type TmuxSession = {
+  name: string
+  windows: number
+  attached: boolean
+  raw: string
+}
+
+export type TmuxStatus = {
+  available: boolean
+  status: 'not-installed' | 'no-server' | 'ok' | 'error'
+  sessions: TmuxSession[]
+  error?: string
 }

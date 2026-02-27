@@ -6,7 +6,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { useTelegram } from './hooks/useTelegram'
 import { FileManager } from './components/file-manager/FileManager'
-import { DockerExplorer } from './components/docker/DockerExplorer'
+import { DockerExplorer, ContainerExecTerminal } from './components/docker/DockerExplorer'
 import { ComposeRunner } from './components/docker/ComposeRunner'
 import { OpenclawCLI } from './components/docker/OpenclawCLI'
 import {
@@ -14,13 +14,16 @@ import {
   createApiClient,
   type CreateSshSessionResponse,
   type SavedHost,
+  type TmuxStatus,
   type VaultStatus,
 } from './api/client'
 
 type SessionTab = {
   id: string
+  type: 'ssh' | 'docker'
   title: string
   websocketUrl: string
+  containerId?: string
 }
 
 type SessionCredentials = {
@@ -837,6 +840,8 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [activeWorkspace, setActiveWorkspace] = useState<'terminal' | 'files' | 'docker' | 'compose' | 'openclaw'>('terminal')
+  const [tmuxStatus, setTmuxStatus] = useState<TmuxStatus | null>(null)
+  const [tmuxExpanded, setTmuxExpanded] = useState(false)
 
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionCommand, setSessionCommand] = useState('')
@@ -950,6 +955,7 @@ function App() {
 
         const restoredTabs: SessionTab[] = connected.map((session) => ({
           id: session.id,
+          type: 'ssh',
           title: session.username ? `${session.username}@${session.host}` : session.host,
           websocketUrl: apiClient.getSessionWebsocketUrl(session.id),
         }))
@@ -1013,6 +1019,7 @@ function App() {
 
       const nextTab: SessionTab = {
         id: created.sessionId,
+        type: 'ssh',
         title: titleOverride ?? created.title ?? titleFromRawCommand(rawCommand),
         websocketUrl: created.websocketUrl,
       }
@@ -1032,6 +1039,20 @@ function App() {
       setBusy(false)
     }
   }, [apiClient, vaultToken])
+
+  const handleOpenExec = useCallback((containerId: string, containerName: string) => {
+    const id = `docker-${containerId}-${Date.now()}`
+    const nextTab: SessionTab = {
+      id,
+      type: 'docker',
+      title: `🐳 ${containerName}`,
+      websocketUrl: apiClient.getContainerExecWsUrl(containerId),
+      containerId,
+    }
+    setSessions((previous) => [nextTab, ...previous])
+    setActiveSessionId(id)
+    setActiveWorkspace('terminal')
+  }, [apiClient])
 
   const closeSession = useCallback(async (sessionId: string) => {
     setSessions((previous) => {
@@ -1268,6 +1289,58 @@ function App() {
     return sessions.find((session) => session.id === activeSessionId) ?? null
   }, [activeSessionId, sessions])
 
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | null = null
+
+    if (!activeSessionId) {
+      setTmuxStatus(null)
+      return
+    }
+
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const next = await apiClient.getSshTmuxSessions(activeSessionId)
+        if (!cancelled) setTmuxStatus(next)
+      } catch (error) {
+        if (!cancelled) {
+          setTmuxStatus({
+            available: true,
+            status: 'error',
+            sessions: [],
+            error: error instanceof Error ? error.message : 'Failed to load tmux status',
+          })
+        }
+      }
+    }
+
+    void poll()
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void poll()
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    timer = window.setInterval(() => { void poll() }, 15000)
+
+    return () => {
+      cancelled = true
+      if (timer) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [activeSessionId, apiClient])
+
+  const tmuxLabel = useMemo(() => {
+    if (!activeSessionId || !tmuxStatus) return 'tmux: …'
+    if (tmuxStatus.status === 'not-installed') return 'tmux: not installed'
+    if (tmuxStatus.status === 'no-server') return 'tmux: no sessions'
+    if (tmuxStatus.status === 'error') return 'tmux: error'
+    return `tmux: ${tmuxStatus.sessions.length}`
+  }, [activeSessionId, tmuxStatus])
+
   return (
     <main className={`workbench-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}>
       <aside className="workbench-sidebar modern-sidebar">
@@ -1371,50 +1444,116 @@ function App() {
       )}
 
       <section className={`workbench-main${sidebarOpen ? ' main-sidebar-open' : ''}`}>
-        <div className="tabs">
-          <button
-            type="button"
-            className="tab icon-toggle"
-            onClick={() => setSidebarOpen((current) => !current)}
-            title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
-          >
-            {sidebarOpen ? '▤' : '☰'}
-          </button>
-          <button
-            type="button"
-            className={activeWorkspace === 'terminal' ? 'tab workspace-tab active' : 'tab workspace-tab'}
-            onClick={() => setActiveWorkspace('terminal')}
-          >
-            Terminal
-          </button>
-          <button
-            type="button"
-            className={activeWorkspace === 'files' ? 'tab workspace-tab active' : 'tab workspace-tab'}
-            onClick={() => setActiveWorkspace('files')}
-          >
-            Files
-          </button>
-          <button
-            type="button"
-            className={activeWorkspace === 'docker' ? 'tab workspace-tab active' : 'tab workspace-tab'}
-            onClick={() => setActiveWorkspace('docker')}
-          >
-            🐳 Docker
-          </button>
-          <button
-            type="button"
-            className={activeWorkspace === 'compose' ? 'tab workspace-tab active' : 'tab workspace-tab'}
-            onClick={() => setActiveWorkspace('compose')}
-          >
-            ⚡ Compose
-          </button>
-          <button
-            type="button"
-            className={activeWorkspace === 'openclaw' ? 'tab workspace-tab active' : 'tab workspace-tab'}
-            onClick={() => setActiveWorkspace('openclaw')}
-          >
-            🦀 Openclaw
-          </button>
+        <div className="top-bar">
+          <div className="top-bar-left">
+            <button
+              type="button"
+              className="tab icon-toggle"
+              onClick={() => setSidebarOpen((current) => !current)}
+              title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
+            >
+              {sidebarOpen ? '▤' : '☰'}
+            </button>
+            <div className="workspace-tabs">
+              <button
+                type="button"
+                className={activeWorkspace === 'terminal' ? 'workspace-tab active' : 'workspace-tab'}
+                onClick={() => setActiveWorkspace('terminal')}
+                title="Terminal"
+              >
+                ⌨️ <span className="tab-text">Terminal</span>
+              </button>
+              <button
+                type="button"
+                className={activeWorkspace === 'files' ? 'workspace-tab active' : 'workspace-tab'}
+                onClick={() => setActiveWorkspace('files')}
+                title="Files"
+              >
+                📁 <span className="tab-text">Files</span>
+              </button>
+              <button
+                type="button"
+                className={activeWorkspace === 'docker' ? 'workspace-tab active' : 'workspace-tab'}
+                onClick={() => setActiveWorkspace('docker')}
+                title="Docker"
+              >
+                🐳 <span className="tab-text">Docker</span>
+              </button>
+              <button
+                type="button"
+                className={activeWorkspace === 'compose' ? 'workspace-tab active' : 'workspace-tab'}
+                onClick={() => setActiveWorkspace('compose')}
+                title="Compose"
+              >
+                ⚡ <span className="tab-text">Compose</span>
+              </button>
+              <button
+                type="button"
+                className={activeWorkspace === 'openclaw' ? 'workspace-tab active' : 'workspace-tab'}
+                onClick={() => setActiveWorkspace('openclaw')}
+                title="Openclaw"
+              >
+                🦀 <span className="tab-text">Openclaw</span>
+              </button>
+            </div>
+          </div>
+          <div className="top-bar-center">
+            <span className="host-title">Daedalus {derivedUserId === 'local-dev' ? '' : derivedUserId}</span>
+          </div>
+          <div className="top-bar-right">
+            {/* Optional right-side actions can go here */}
+          </div>
+        </div>
+
+        <div className="session-row">
+          {activeSessionId && (
+            <div className="tmux-pill-wrap">
+              <button
+                type="button"
+                className={`tab tmux-pill${tmuxExpanded ? ' active' : ''}`}
+                onClick={() => setTmuxExpanded((current) => !current)}
+                title="Host tmux sessions"
+              >
+                {tmuxLabel}
+              </button>
+              {tmuxExpanded && tmuxStatus && (
+                <div className="tmux-popover glass">
+                  {tmuxStatus.status === 'ok' && tmuxStatus.sessions.length > 0 && (
+                    <ul>
+                      {tmuxStatus.sessions.map((s) => (
+                        <li key={s.name}>
+                          <div className="tmux-info">
+                            <strong>{s.name}</strong>
+                            <span>{s.windows}w{ s.attached ? ' · attached' : ''}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="tmux-copy-btn"
+                            title="Copy attach command"
+                            onClick={() => { void navigator.clipboard.writeText(`tmux attach -t ${s.name}`) }}
+                          >
+                            📋
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {tmuxStatus.status === 'ok' && tmuxStatus.sessions.length === 0 && <p>No sessions</p>}
+                  {tmuxStatus.status === 'no-server' && <p>No tmux server running</p>}
+                  {tmuxStatus.status === 'not-installed' && <p>tmux is not installed</p>}
+                  {tmuxStatus.status === 'error' && <p>{tmuxStatus.error ?? 'tmux check failed'}</p>}
+                  <button type="button" onClick={() => { void (async () => {
+                    if (!activeSessionId) return
+                    try {
+                      setTmuxStatus(await apiClient.getSshTmuxSessions(activeSessionId))
+                    } catch {
+                      // noop
+                    }
+                  })() }}>Refresh</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {sessions.map((session) => (
             <button
@@ -1447,20 +1586,29 @@ function App() {
               <span className="terminal-empty-hint">Open a new session to get started</span>
             </div>
           )}
-          {sessions.map((session) => (
-            <TerminalSession
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              onResize={async (sessionId, cols, rows) => {
-                try {
-                  await apiClient.resizeSshSession(sessionId, cols, rows)
-                } catch {
-                  // best effort
-                }
-              }}
-            />
-          ))}
+          {sessions.map((session) => {
+            if (session.type === 'docker') {
+              return (
+                <div key={session.id} className={`terminal-session ${session.id === activeSessionId ? 'active' : ''}`}>
+                  <ContainerExecTerminal wsUrl={session.websocketUrl} onClose={() => void closeSession(session.id)} />
+                </div>
+              )
+            }
+            return (
+              <TerminalSession
+                key={session.id}
+                session={session}
+                isActive={session.id === activeSessionId}
+                onResize={async (sessionId, cols, rows) => {
+                  try {
+                    await apiClient.resizeSshSession(sessionId, cols, rows)
+                  } catch {
+                    // best effort
+                  }
+                }}
+              />
+            )
+          })}
         </div>
         <div className={activeWorkspace === 'files' ? 'file-manager-area' : 'file-manager-area hidden'}>
           <FileManager
@@ -1470,7 +1618,7 @@ function App() {
           />
         </div>
         <div className={activeWorkspace === 'docker' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
-          <DockerExplorer apiClient={apiClient} />
+          <DockerExplorer apiClient={apiClient} onOpenExec={handleOpenExec} />
         </div>
         <div className={activeWorkspace === 'compose' ? 'file-manager-area docker-workspace' : 'file-manager-area hidden'}>
           <ComposeRunner apiClient={apiClient} />
