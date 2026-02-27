@@ -439,6 +439,24 @@ export class SshService {
     await this.store.appendAuditEvent(event);
   }
 
+  private logServerEvent(
+    userId: string,
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    meta?: Record<string, unknown>,
+  ): void {
+    void this.store.appendClientLogEvent({
+      ts: new Date().toISOString(),
+      userId,
+      level,
+      category: "ssh-service",
+      message,
+      meta,
+    }).catch(() => {
+      // best effort logging
+    });
+  }
+
   private sendAll(session: Session, payload: unknown): void {
     const encoded = JSON.stringify(payload);
     for (const ws of session.sockets) {
@@ -832,6 +850,11 @@ export class SshService {
   getSession(userId: string, sessionId: string): Session {
     const session = this.sessions.get(sessionId);
     if (!session || session.userId !== userId) {
+      this.logServerEvent(userId, "warn", "session_not_found", {
+        sessionId,
+        activeSessionCount: this.sessions.size,
+        activeSessionIds: Array.from(this.sessions.keys()).slice(0, 10),
+      });
       throw new Error("Session not found");
     }
     return session;

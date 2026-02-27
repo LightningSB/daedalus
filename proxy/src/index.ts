@@ -93,6 +93,27 @@ function bad(request: Request, error: unknown, status = 400): Response {
   return withCors(json({ error: message }, status), request);
 }
 
+async function logServerEvent(input: {
+  userId?: string;
+  level?: "debug" | "info" | "warn" | "error";
+  category: string;
+  message: string;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await store.appendClientLogEvent({
+      ts: new Date().toISOString(),
+      userId: input.userId ?? "system",
+      level: input.level ?? "info",
+      category: input.category,
+      message: input.message,
+      meta: input.meta,
+    });
+  } catch {
+    // best effort
+  }
+}
+
 async function handleHosts(request: Request, userId: string): Promise<Response> {
   if (request.method === "GET") {
     const hosts = await store.getHosts(userId);
@@ -260,16 +281,29 @@ async function handleClientLogs(request: Request, userId: string): Promise<Respo
       return bad(request, new Error("message is required"), 400);
     }
 
-    await store.appendClientLogEvent({
-      ts: body.ts ?? new Date().toISOString(),
-      userId,
-      level: body.level ?? "info",
-      category: body.category ?? "client",
-      message: body.message,
-      meta: body.meta,
-    });
-
-    return ok(request, { ok: true }, 201);
+    try {
+      await store.appendClientLogEvent({
+        ts: body.ts ?? new Date().toISOString(),
+        userId,
+        level: body.level ?? "info",
+        category: body.category ?? "client",
+        message: body.message,
+        meta: body.meta,
+      });
+      return ok(request, { ok: true }, 201);
+    } catch (error) {
+      await logServerEvent({
+        userId,
+        level: "error",
+        category: "client-logs",
+        message: "append_client_log_failed",
+        meta: {
+          originalMessage: body.message,
+          error: error instanceof Error ? error.message : "unknown",
+        },
+      });
+      return bad(request, error, 500);
+    }
   }
 
   return bad(request, new Error("Method not allowed"), 405);
@@ -388,12 +422,33 @@ async function handleSshSessions(request: Request, userId: string): Promise<Resp
       rows?: number;
     }>(request);
 
-    const summary = await sshService.createSession(userId, {
-      ...body,
-      vaultToken: getVaultToken(request) ?? undefined,
-    });
-
-    return ok(request, { session: summary }, 201);
+    try {
+      const summary = await sshService.createSession(userId, {
+        ...body,
+        vaultToken: getVaultToken(request) ?? undefined,
+      });
+      await logServerEvent({
+        userId,
+        category: "ssh-session",
+        message: "session_created",
+        meta: { sessionId: summary.id, host: summary.host, port: summary.port },
+      });
+      return ok(request, { session: summary }, 201);
+    } catch (error) {
+      await logServerEvent({
+        userId,
+        level: "error",
+        category: "ssh-session",
+        message: "session_create_failed",
+        meta: {
+          hostId: body.hostId,
+          host: body.host,
+          command: body.command,
+          error: error instanceof Error ? error.message : "unknown",
+        },
+      });
+      throw error;
+    }
   }
 
   return bad(request, new Error("Method not allowed"), 405);
@@ -406,19 +461,54 @@ async function handleSshSessionDetail(
   action?: "resize" | "close",
 ): Promise<Response> {
   if (!action && request.method === "DELETE") {
-    await sshService.closeSession(userId, sessionId);
-    return ok(request, { ok: true });
+    try {
+      await sshService.closeSession(userId, sessionId);
+      await logServerEvent({ userId, category: "ssh-session", message: "session_closed", meta: { sessionId } });
+      return ok(request, { ok: true });
+    } catch (error) {
+      await logServerEvent({
+        userId,
+        level: "warn",
+        category: "ssh-session",
+        message: "session_close_failed",
+        meta: { sessionId, error: error instanceof Error ? error.message : "unknown" },
+      });
+      throw error;
+    }
   }
 
   if (action === "close" && request.method === "DELETE") {
-    await sshService.closeSession(userId, sessionId);
-    return ok(request, { ok: true });
+    try {
+      await sshService.closeSession(userId, sessionId);
+      await logServerEvent({ userId, category: "ssh-session", message: "session_closed", meta: { sessionId } });
+      return ok(request, { ok: true });
+    } catch (error) {
+      await logServerEvent({
+        userId,
+        level: "warn",
+        category: "ssh-session",
+        message: "session_close_failed",
+        meta: { sessionId, error: error instanceof Error ? error.message : "unknown" },
+      });
+      throw error;
+    }
   }
 
   if (action === "resize" && request.method === "POST") {
     const body = await readJson<{ cols: number; rows: number }>(request);
-    sshService.resizeSession(userId, sessionId, body.cols, body.rows);
-    return ok(request, { ok: true });
+    try {
+      sshService.resizeSession(userId, sessionId, body.cols, body.rows);
+      return ok(request, { ok: true });
+    } catch (error) {
+      await logServerEvent({
+        userId,
+        level: "warn",
+        category: "ssh-session",
+        message: "session_resize_failed",
+        meta: { sessionId, cols: body.cols, rows: body.rows, error: error instanceof Error ? error.message : "unknown" },
+      });
+      throw error;
+    }
   }
 
   return bad(request, new Error("Method not allowed"), 405);
@@ -640,8 +730,23 @@ const server = Bun.serve<WsSessionData>({
       }
 
       if (pathname === "/api/docker/self" && request.method === "GET") {
-        const self = await dockerService.getSelfContainer();
-        return ok(request, self);
+        try {
+          const self = await dockerService.getSelfContainer();
+          await logServerEvent({
+            category: "docker-self",
+            message: "resolved_self_container",
+            meta: { containerId: self.containerId, name: self.name, hostname: process.env.HOSTNAME ?? null },
+          });
+          return ok(request, self);
+        } catch (error) {
+          await logServerEvent({
+            level: "error",
+            category: "docker-self",
+            message: "resolve_self_container_failed",
+            meta: { hostname: process.env.HOSTNAME ?? null, error: error instanceof Error ? error.message : "unknown" },
+          });
+          throw error;
+        }
       }
 
       if (pathname === "/api/docker/compose/projects" && request.method === "GET") {
@@ -994,6 +1099,23 @@ const server = Bun.serve<WsSessionData>({
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unexpected server error";
       const status = message.includes("not found") || message.includes("Not found") ? 404 : 400;
+
+      const userIdMatch = pathname.match(/^\/api\/users\/([^/]+)/);
+      const sessionMatch = pathname.match(/\/ssh\/sessions\/([^/]+)/);
+      await logServerEvent({
+        userId: userIdMatch ? decodeURIComponent(userIdMatch[1]) : undefined,
+        level: "error",
+        category: "request-error",
+        message: "request_failed",
+        meta: {
+          path: pathname,
+          method: request.method,
+          status,
+          error: message,
+          sessionId: sessionMatch ? decodeURIComponent(sessionMatch[1]) : undefined,
+        },
+      });
+
       return bad(request, error, status);
     }
   },
@@ -1009,6 +1131,13 @@ const server = Bun.serve<WsSessionData>({
             ws as unknown as Bun.ServerWebSocket<{ userId: string; sessionId: string }>,
           );
         } catch (error: unknown) {
+          void logServerEvent({
+            userId: data.userId,
+            level: "warn",
+            category: "ssh-ws",
+            message: "attach_failed",
+            meta: { sessionId: data.sessionId, error: error instanceof Error ? error.message : "unknown" },
+          });
           ws.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Open failed" }));
           ws.close();
         }
@@ -1021,7 +1150,26 @@ const server = Bun.serve<WsSessionData>({
           data.containerId,
           data.execSessionId,
           ws,
-        );
+        ).catch((error: unknown) => {
+          void logServerEvent({
+            userId: data.userId,
+            level: "warn",
+            category: "ssh-docker-ws",
+            message: "attach_failed",
+            meta: {
+              sessionId: data.sessionId,
+              containerId: data.containerId,
+              execSessionId: data.execSessionId,
+              error: error instanceof Error ? error.message : "unknown",
+            },
+          });
+          try {
+            ws.send(JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "Open failed" }));
+            ws.close();
+          } catch {
+            // ignore
+          }
+        });
       } else if (data.kind === "user-events") {
         const { userId } = data;
         if (!userEventSockets.has(userId)) {

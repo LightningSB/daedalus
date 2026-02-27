@@ -1,4 +1,5 @@
 import Dockerode from "dockerode";
+import { readFile } from "node:fs/promises";
 import type { DockerContainerInfo, DockerContainerSummary, DockerExecWsData, DockerFileEntry, DockerFilePreview, TmuxSession, TmuxStatus, WsSessionData } from "../types/docker";
 
 const docker = new Dockerode({ socketPath: "/var/run/docker.sock" });
@@ -79,6 +80,24 @@ export async function inspectContainer(
   };
 }
 
+async function resolveContainerIdFromRuntime(): Promise<string | null> {
+  const fromEnv = process.env.SELF_CONTAINER_ID?.trim();
+  if (fromEnv) return fromEnv;
+
+  const candidates = ["/proc/self/cgroup", "/proc/1/cgroup", "/proc/self/mountinfo"];
+  for (const file of candidates) {
+    try {
+      const raw = await readFile(file, "utf8");
+      const match = raw.match(/[a-f0-9]{64}/i);
+      if (match?.[0]) return match[0];
+    } catch {
+      // ignore missing proc files
+    }
+  }
+
+  return null;
+}
+
 export async function getSelfContainer(): Promise<{ containerId: string; name: string }> {
   const hostname = process.env.HOSTNAME?.trim();
   if (hostname) {
@@ -105,7 +124,17 @@ export async function getSelfContainer(): Promise<{ containerId: string; name: s
     }
   }
 
-  throw new Error("Could not resolve current container id");
+  const runtimeContainerId = await resolveContainerIdFromRuntime();
+  if (runtimeContainerId) {
+    try {
+      const info = await docker.getContainer(runtimeContainerId).inspect();
+      return { containerId: info.Id, name: info.Name.replace(/^\//, "") };
+    } catch {
+      // fallthrough
+    }
+  }
+
+  throw new Error(`Could not resolve current container id (hostname=${hostname ?? "n/a"}, runtimeId=${runtimeContainerId ?? "n/a"})`);
 }
 
 /** Run a one-shot command in a container and return stdout. */
