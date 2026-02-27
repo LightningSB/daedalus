@@ -428,6 +428,8 @@ function SessionDialog({
 // TerminalSession
 // ---------------------------------------------------------------------------
 
+const MAX_TERMINAL_OUTPUT_BYTES = 256 * 1024 // 256 KB per session
+
 function TerminalSession({
   session,
   isActive,
@@ -445,6 +447,9 @@ function TerminalSession({
   const [ctrlArmed, setCtrlArmed] = useState(false)
   const onResizeRef = useRef(onResize)
   onResizeRef.current = onResize
+  const outputKey = `daedalus:terminal:output:${session.id}`
+  const outputBufferRef = useRef<string>('')
+  const flushRef = useRef<() => void>(() => { /* no-op until effect runs */ })
   const [fontSize, setFontSize] = useState<number>(() => {
     try {
       const stored = window.localStorage.getItem('daedalus:terminalFontSize')
@@ -511,9 +516,38 @@ function TerminalSession({
       fitAddon.fit()
     }
 
-    terminal.writeln('\x1b[1;32mDaedalus SSH Workbench\x1b[0m')
-    terminal.writeln(`Session: ${session.title}`)
-    terminal.writeln('')
+    // Restore previous output or show the welcome banner
+    let storedOutput = ''
+    try {
+      storedOutput = window.sessionStorage.getItem(outputKey) ?? ''
+    } catch { /* ignore */ }
+
+    if (storedOutput) {
+      terminal.write(storedOutput)
+    } else {
+      terminal.writeln('\x1b[1;32mDaedalus SSH Workbench\x1b[0m')
+      terminal.writeln(`Session: ${session.title}`)
+      terminal.writeln('')
+    }
+
+    outputBufferRef.current = ''
+
+    const flush = () => {
+      const buf = outputBufferRef.current
+      if (!buf) return
+      try {
+        const prev = window.sessionStorage.getItem(outputKey) ?? ''
+        let combined = prev + buf
+        if (combined.length > MAX_TERMINAL_OUTPUT_BYTES) {
+          combined = combined.slice(combined.length - MAX_TERMINAL_OUTPUT_BYTES)
+        }
+        window.sessionStorage.setItem(outputKey, combined)
+        outputBufferRef.current = ''
+      } catch {
+        outputBufferRef.current = ''
+      }
+    }
+    flushRef.current = flush
 
     const socket = new WebSocket(session.websocketUrl)
     socketRef.current = socket
@@ -535,6 +569,7 @@ function TerminalSession({
 
         if (parsed.type === 'output' && typeof parsed.data === 'string') {
           terminal.write(parsed.data)
+          outputBufferRef.current += parsed.data
           return
         }
 
@@ -614,6 +649,7 @@ function TerminalSession({
     })
 
     return () => {
+      flushRef.current()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       socket.close()
@@ -622,7 +658,7 @@ function TerminalSession({
       fitAddonRef.current = null
       socketRef.current = null
     }
-  }, [sendInput, session.id, session.websocketUrl])
+  }, [sendInput, session.id, session.websocketUrl, outputKey])
 
   useEffect(() => {
     if (!isActive) return
@@ -685,6 +721,12 @@ function TerminalSession({
       // ignore storage errors
     }
   }, [fontSize, session.id])
+
+  // Periodically flush buffered output to sessionStorage
+  useEffect(() => {
+    const timer = window.setInterval(() => flushRef.current(), 2000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const handleControlPress = useCallback(async (control: MobileControl) => {
     if (control.action === 'ctrl') {
@@ -806,6 +848,43 @@ function extractTelegramUserIdFromContext(): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Vault token localStorage helpers
+// ---------------------------------------------------------------------------
+
+const VAULT_TOKEN_KEY = 'daedalus:vaultToken'
+
+function loadStoredVaultToken(): string | null {
+  try {
+    const raw = window.localStorage.getItem(VAULT_TOKEN_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { token: string; expiresAt: number }
+    if (Date.now() >= parsed.expiresAt) {
+      window.localStorage.removeItem(VAULT_TOKEN_KEY)
+      return null
+    }
+    return parsed.token
+  } catch {
+    return null
+  }
+}
+
+function storeVaultToken(token: string, ttlMs: number): void {
+  try {
+    window.localStorage.setItem(VAULT_TOKEN_KEY, JSON.stringify({ token, expiresAt: Date.now() + ttlMs }))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function clearStoredVaultToken(): void {
+  try {
+    window.localStorage.removeItem(VAULT_TOKEN_KEY)
+  } catch {
+    // ignore storage errors
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -836,7 +915,7 @@ function App() {
   const [hostsError, setHostsError] = useState<string | null>(null)
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
   const [vaultPassphrase, setVaultPassphrase] = useState('')
-  const [vaultToken, setVaultToken] = useState<string | null>(null)
+  const [vaultToken, setVaultToken] = useState<string | null>(() => loadStoredVaultToken())
   const [recoveryPhrase, setRecoveryPhrase] = useState<string | null>(null)
   const [statusLine, setStatusLine] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -911,10 +990,12 @@ function App() {
       setVaultStatus(status)
       if (!status.unlocked) {
         setVaultToken(null)
+        clearStoredVaultToken()
       }
     } catch {
       setVaultStatus(null)
       setVaultToken(null)
+      clearStoredVaultToken()
     }
   }, [apiClient])
 
@@ -1124,6 +1205,12 @@ function App() {
     } catch {
       // best effort
     }
+
+    try {
+      window.sessionStorage.removeItem(`daedalus:terminal:output:${sessionId}`)
+    } catch {
+      // ignore storage errors
+    }
   }, [activeSessionId, apiClient])
 
   const handleVaultInit = useCallback(async () => {
@@ -1156,6 +1243,7 @@ function App() {
     try {
       const result = await apiClient.unlockVault(vaultPassphrase)
       setVaultToken(result.token)
+      storeVaultToken(result.token, result.ttlMs)
       setStatusLine('Vault unlocked.')
       setVaultPassphrase('')
       await refreshVaultStatus()
@@ -1176,6 +1264,7 @@ function App() {
     try {
       await apiClient.lockVault(vaultToken)
       setVaultToken(null)
+      clearStoredVaultToken()
       setStatusLine('Vault locked.')
       await refreshVaultStatus()
     } catch (error) {
