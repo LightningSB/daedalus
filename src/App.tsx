@@ -1677,7 +1677,7 @@ function App() {
         </div>
 
         <div className="session-row">
-          {activeSessionId && activeSession?.type === 'ssh' && (
+          {activeSessionId && activeSession?.type === 'ssh' && tmuxStatus?.status !== 'not-installed' && (
             <div className="tmux-pill-wrap">
               <button
                 type="button"
@@ -1711,7 +1711,6 @@ function App() {
                   )}
                   {tmuxStatus.status === 'ok' && tmuxStatus.sessions.length === 0 && <p>No sessions</p>}
                   {tmuxStatus.status === 'no-server' && <p>No tmux server running</p>}
-                  {tmuxStatus.status === 'not-installed' && <p>tmux is not installed</p>}
                   {tmuxStatus.status === 'error' && <p>{tmuxStatus.error ?? 'tmux check failed'}</p>}
                   <button type="button" onClick={() => { void (async () => {
                     if (!activeSessionId) return
