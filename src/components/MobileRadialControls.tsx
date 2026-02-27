@@ -57,13 +57,13 @@ const ARROW_ACTIONS = {
 const calculateNodes = (items: any[], layerName: string) => {
   return items.map((item, i) => {
     const isTop = layerName === 'top';
-    const spacingX = 58; // Horizontal spacing between nodes
-    const spacingY = 58; // Vertical spacing for nested layers
+    const spacingY = 48; // Vertical spacing between nodes
+    const spacingX = 48; // Horizontal spacing for nested layers
     
-    // Top-level controls expand horizontally to the LEFT.
-    // Second-level controls appear ABOVE that top-level row, also to the LEFT.
-    const x = -spacingX * (i + 1);
-    const y = isTop ? 0 : -spacingY;
+    // Top-level controls expand vertically UPWARDS.
+    // Second-level controls appear to the LEFT of that top-level column.
+    const x = isTop ? 0 : -spacingX;
+    const y = -spacingY * (i + 1);
     
     return { item, x, y, ringIndex: i };
   });
@@ -79,6 +79,11 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
   const [pendingClickId, setPendingClickId] = useState<string | null>(null);
   
   const clickTimeoutRef = useRef<number | null>(null);
+
+  // Drag state
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartX = useRef<number | null>(null);
+  const currentDragX = useRef<number>(0);
 
   // Thumbstick state
   const [thumbPosition, setThumbPosition] = useState({ x: 0, y: 0 });
@@ -255,8 +260,11 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
       )}
 
       {/* Radial Menu */}
-      <div className="mobile-controls-floating">
+      <div className="mobile-controls-floating" style={{ transform: `translateX(${dragOffset}px)` }}>
         <div className="radial-container">
+          <div style={{ position: 'absolute', right: '100%', marginRight: '16px', top: '50%', transform: 'translateY(-50%)', whiteSpace: 'nowrap', opacity: 0.7, fontSize: '13px', pointerEvents: 'none', transition: 'opacity 0.2s', visibility: isOpen ? 'hidden' : 'visible' }}>
+            Key functionality
+          </div>
           {allNodes.map((node) => {
             const isActiveLayer = isOpen && activeLayer === node.layerName;
             const isPending = pendingClickId === node.item.id;
@@ -288,7 +296,7 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'none' }}>
                   {node.item.label && (
                     <span style={{ 
-                      fontSize: node.item.label.length <= 2 ? '22px' : '14px', 
+                      fontSize: node.item.label.length <= 2 ? '28px' : '16px', 
                       opacity: 0.9, 
                       lineHeight: 1 
                     }}>
@@ -300,23 +308,45 @@ export const MobileRadialControls: React.FC<MobileRadialControlsProps> = ({
             );
           })}
           
-          <button 
-            type="button"
-            className={`radial-fab ${isOpen ? 'open' : ''}`}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleMenu();
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            aria-label="Toggle keyboard shortcuts"
-          >
-            +
-          </button>
-        </div>
+                    <button 
+                      type="button"
+                      className={`radial-fab ${isOpen ? 'open' : ''}`}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragStartX.current = e.clientX;
+                        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                      }}
+                      onPointerMove={(e) => {
+                        if (dragStartX.current !== null) {
+                          const diff = e.clientX - dragStartX.current;
+                          setDragOffset(currentDragX.current + diff);
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+                        
+                        if (dragStartX.current !== null) {
+                          const diff = e.clientX - dragStartX.current;
+                          if (Math.abs(diff) < 5) {
+                            toggleMenu();
+                          } else {
+                            currentDragX.current += diff;
+                            setDragOffset(currentDragX.current);
+                          }
+                          dragStartX.current = null;
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      aria-label="Toggle keyboard shortcuts"
+                    >
+                      ⌘
+                    </button>        </div>
       </div>
     </>
   );
